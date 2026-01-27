@@ -2,7 +2,7 @@ import { WitnessTester } from "circomkit";
 import { circomkit } from "../common";
 import { assert } from "console";
 
-describe("AgeVerifier", () => {
+describe("AgeVerifier (ROC)", () => {
   let circuit: WitnessTester<["claim", "currentYear", "currentMonth", "currentDay"], ["ageAbove18"]>;
 
   const maxClaimLength = 128;
@@ -18,7 +18,7 @@ describe("AgeVerifier", () => {
     console.log("AgeVerifier constraints:", await circuit.getConstraintCount());
   });
 
-  it("should decode raw claims with padding correctly and pass constraints", async () => {
+  it("should decode ROC claims and pass constraints", async () => {
     const input = "WyJGc2w4ZWpObEFNT2Vqc1lTdjc2Z1NnIiwicm9jX2JpcnRoZGF5IiwiMTA0MDYwNSJd";
 
     let decodedClaims = Array.from(Buffer.from(atob(input)));
@@ -42,67 +42,55 @@ describe("AgeVerifier", () => {
   });
 });
 
-describe("AgeExtractor", () => {
-  let circuit: WitnessTester<["YYMMDD", "currentYear", "currentMonth", "currentDay"], ["age"]>;
+describe("AgeVerifierISO (ISO 8601)", () => {
+  let circuit: WitnessTester<["claim", "currentYear", "currentMonth", "currentDay"], ["ageAbove18"]>;
+
+  const maxClaimLength = 128;
+  const byteLength = Math.floor((maxClaimLength * 3) / 4);
 
   before(async () => {
-    circuit = await circomkit.WitnessTester("AgeExtractor", {
+    circuit = await circomkit.WitnessTester("AgeVerifierISO", {
       file: "components/age-verifier",
-      template: "AgeExtractor",
-      params: [],
+      template: "AgeVerifierISO",
+      params: [byteLength],
       recompile: true,
     });
-    console.log("AgeExtractor constraints:", await circuit.getConstraintCount());
+    console.log("AgeVerifierISO constraints:", await circuit.getConstraintCount());
   });
 
-  function toDigits(rocYear: number, month: number, day: number): number[] {
-    const roc = rocYear.toString().padStart(3, "0");
-    const m = month.toString().padStart(2, "0");
-    const d = day.toString().padStart(2, "0");
-    return [...roc, ...m, ...d].map((c) => parseInt(c, 10));
-  }
+  it("should verify age above 18 with ISO 8601 format", async () => {
+    const jsonStr = '["Fsl8ejNlAMOejsYSv76gSg","birthday","1968-06-05"]';
+    let decodedClaims = Array.from(Buffer.from(jsonStr));
+    while (decodedClaims.length < byteLength) {
+      decodedClaims.push(0);
+    }
 
-  //  March 15, 2025
-  const currentYear = BigInt(2025);
-  const currentMonth = BigInt(3);
-  const currentDay = BigInt(15);
-
-  it("calculates age when birthday has passed this year (March)", async () => {
-    //  March 14, 2000 => ROC year = 2000 - 1911 = 89
-    const YYMMDD = toDigits(89, 3, 14);
     const witness = await circuit.calculateWitness({
-      YYMMDD,
-      currentYear,
-      currentMonth,
-      currentDay,
+      claim: decodedClaims,
+      currentYear: BigInt(2025),
+      currentMonth: BigInt(3),
+      currentDay: BigInt(15),
     });
-    const signals = await circuit.readWitnessSignals(witness, ["age"]);
-    assert(signals.age === 25n, `Expected age 25, got ${signals.age}`);
+    await circuit.expectConstraintPass(witness);
+    const signals = await circuit.readWitnessSignals(witness, ["ageAbove18"]);
+    assert(signals.ageAbove18 === 1n, `Expected ageAbove18=1, got ${signals.ageAbove18}`);
   });
 
-  it("calculates age when birthday is today (March)", async () => {
-    //  March 15, 2000 => ROC year = 89
-    const YYMMDD = toDigits(89, 3, 15);
-    const witness = await circuit.calculateWitness({
-      YYMMDD,
-      currentYear,
-      currentMonth,
-      currentDay,
-    });
-    const signals = await circuit.readWitnessSignals(witness, ["age"]);
-    assert(signals.age === 25n, `Expected age 25, got ${signals.age}`);
-  });
+  it("should verify age below 18 with ISO 8601 format", async () => {
+    const jsonStr = '["Fsl8ejNlAMOejsYSv76gSg","birthday","2015-06-05"]';
+    let decodedClaims = Array.from(Buffer.from(jsonStr));
+    while (decodedClaims.length < byteLength) {
+      decodedClaims.push(0);
+    }
 
-  it("calculates age when birthday has not passed yet (March)", async () => {
-    //  March 16, 2000 => ROC year = 89
-    const YYMMDD = toDigits(89, 3, 16);
     const witness = await circuit.calculateWitness({
-      YYMMDD,
-      currentYear,
-      currentMonth,
-      currentDay,
+      claim: decodedClaims,
+      currentYear: BigInt(2025),
+      currentMonth: BigInt(3),
+      currentDay: BigInt(15),
     });
-    const signals = await circuit.readWitnessSignals(witness, ["age"]);
-    assert(signals.age === 24n, `Expected age 24, got ${signals.age}`);
+    await circuit.expectConstraintPass(witness);
+    const signals = await circuit.readWitnessSignals(witness, ["ageAbove18"]);
+    assert(signals.ageAbove18 === 0n, `Expected ageAbove18=0, got ${signals.ageAbove18}`);
   });
 });
