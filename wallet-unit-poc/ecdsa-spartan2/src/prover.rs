@@ -249,25 +249,28 @@ pub fn reblind_with_loaded_data<C: SpartanCircuit<E>>(
     }
 }
 
-/// Only run the verification part using ZK-Spartan
-pub fn verify_circuit(proof_path: &str, vk_path: &str) {
+/// Only run the verification part using ZK-Spartan.
+/// Returns the public values embedded in the proof.
+pub fn verify_circuit(proof_path: &str, vk_path: &str) -> Vec<Scalar> {
     let proof = load_proof(proof_path).expect("load proof failed");
     let vk = load_verifying_key(vk_path).expect("load verifying key failed");
 
-    verify_circuit_with_loaded_data(&proof, &vk);
+    verify_circuit_with_loaded_data(&proof, &vk)
 }
 
-/// Verify circuit with pre-loaded data - useful for benchmarking to exclude file I/O
+/// Verify circuit with pre-loaded data - useful for benchmarking to exclude file I/O.
+/// Returns the public values embedded in the proof.
 pub fn verify_circuit_with_loaded_data(
     proof: &R1CSSNARK<E>,
     vk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::VerifierKey,
-) {
+) -> Vec<Scalar> {
     let t0 = Instant::now();
-    proof.verify(&vk).expect("verify errored");
+    let public_values = proof.verify(&vk).expect("verify errored");
     let verify_ms = t0.elapsed().as_millis();
     info!(elapsed_ms = verify_ms, "ZK-Spartan verify");
 
     info!("Verification successful! Time: {} ms", verify_ms);
+    public_values
 }
 
 /// Generate witness for the Prepare circuit.

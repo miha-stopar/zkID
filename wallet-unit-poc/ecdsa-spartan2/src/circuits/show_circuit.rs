@@ -102,8 +102,7 @@ impl SpartanCircuit<E> for ShowCircuit {
     ) -> Result<(), SynthesisError> {
         let cwd = current_dir().unwrap();
         let root = cwd.join("../circom");
-        let witness_dir = root.join("build/show/show_js");
-        let r1cs_path = witness_dir.join("show.r1cs");
+        let r1cs_path = root.join("build/show/show.r1cs");
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
@@ -111,7 +110,7 @@ impl SpartanCircuit<E> for ShowCircuit {
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(r1cs_path);
+            let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
             // Pass None for witness during setup
             synthesize(cs, r1cs, None)?;
             return Ok(());
@@ -120,18 +119,21 @@ impl SpartanCircuit<E> for ShowCircuit {
         // Use cached witness (same as shared() used) for soundness
         let witness = self.get_or_generate_witness()?;
 
-        let r1cs = load_r1cs(r1cs_path);
+        let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
         synthesize(cs, r1cs, Some(witness))?;
         Ok(())
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        let witness = self
-            .input_path
-            .as_ref()
-            .and_then(|_| self.get_or_generate_witness().ok());
+        // Circom public IO: ageAbove18 (output), deviceKeyX, deviceKeyY (inputs)
+        // Witness indices 1..=3
+        let witness = self.get_or_generate_witness().ok();
 
-        Ok(vec![])
+        let mut values = Vec::with_capacity(3);
+        for idx in 1..=3 {
+            values.push(witness.as_ref().map(|w| w[idx]).unwrap_or(Scalar::ZERO));
+        }
+        Ok(values)
     }
 
     fn shared<CS: ConstraintSystem<Scalar>>(

@@ -27,6 +27,7 @@ use ecdsa_spartan2::{
     setup::SHOW_WITNESS, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
     verify_circuit_with_loaded_data, PrepareCircuit, ShowCircuit, E,
 };
+use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -233,7 +234,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     // Step 2: Setup Show Circuit
     info!("Step 2/9: Setting up Show circuit...");
-    let show_circuit = ShowCircuit::new(input_path.clone());
+    let show_circuit = ShowCircuit::new(None);
     let t0 = Instant::now();
     let (show_pk, show_vk) = setup_circuit_keys_no_save(show_circuit);
     let show_setup_ms = t0.elapsed().as_millis();
@@ -277,7 +278,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        PrepareCircuit::default(),
+        PrepareCircuit::new(input_path.clone()),
         &prepare_pk,
         prepare_instance,
         prepare_witness,
@@ -292,7 +293,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 6: Prove Show Circuit
     info!("Step 6/9: Proving Show circuit...");
     let t0 = Instant::now();
-    let show_circuit = ShowCircuit::new(input_path.clone());
+    let show_circuit = ShowCircuit::new(None);
     prove_circuit_with_pk(
         show_circuit,
         &show_pk,
@@ -312,7 +313,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        ShowCircuit::default(),
+        ShowCircuit::new(None),
         &show_pk,
         show_instance,
         show_witness,
@@ -331,7 +332,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Reuse prepare_vk from setup step (already in memory)
 
     let t0 = Instant::now();
-    verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
+    let _prepare_public_values = verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
     let verify_prepare_ms = t0.elapsed().as_millis();
     println!("✓ Prepare proof verified: {} ms\n", verify_prepare_ms);
 
@@ -342,9 +343,14 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Reuse show_vk from setup step (already in memory)
 
     let t0 = Instant::now();
-    verify_circuit_with_loaded_data(&show_proof, &show_vk);
+    let show_public_values = verify_circuit_with_loaded_data(&show_proof, &show_vk);
     let verify_show_ms = t0.elapsed().as_millis();
-    println!("✓ Show proof verified: {} ms\n", verify_show_ms);
+    println!("✓ Show proof verified: {} ms", verify_show_ms);
+    if !show_public_values.is_empty() {
+        println!("Show public IO: {:?}", show_public_values);
+        let age_above_18 = show_public_values[0] == Field::ONE;
+        println!("  ageAbove18: {}\n", age_above_18);
+    }
 
     // Measure file sizes
     info!("Measuring artifact sizes...");
@@ -406,12 +412,12 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Verify => {
             info!("Verifying Prepare proof with ZK-Spartan");
-            verify_circuit(PREPARE_PROOF, PREPARE_VERIFYING_KEY);
+            let _public_values = verify_circuit(PREPARE_PROOF, PREPARE_VERIFYING_KEY);
         }
         CircuitAction::Reblind => {
             info!("Reblind Spartan sumcheck + Hyrax PCS Prepare");
             reblind(
-                PrepareCircuit::default(),
+                PrepareCircuit::new(options.input.clone()),
                 PREPARE_PROVING_KEY,
                 PREPARE_INSTANCE,
                 PREPARE_WITNESS,
@@ -455,12 +461,17 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Verify => {
             info!("Verifying Show proof with ZK-Spartan");
-            verify_circuit(SHOW_PROOF, SHOW_VERIFYING_KEY);
+            let public_values = verify_circuit(SHOW_PROOF, SHOW_VERIFYING_KEY);
+            // Show public IO: [ageAbove18, deviceKeyX, deviceKeyY]
+            if !public_values.is_empty() {
+                let age_above_18 = public_values[0] == Field::ONE;
+                println!("ageAbove18: {} (raw: {:?})", age_above_18, public_values[0]);
+            }
         }
         CircuitAction::Reblind => {
             info!("Reblind Spartan sumcheck + Hyrax PCS Show");
             reblind(
-                ShowCircuit::default(),
+                ShowCircuit::new(options.input.clone()),
                 SHOW_PROVING_KEY,
                 SHOW_INSTANCE,
                 SHOW_WITNESS,

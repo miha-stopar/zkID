@@ -78,8 +78,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
     ) -> Result<(), SynthesisError> {
         let cwd = current_dir().unwrap();
         let root = cwd.join("../circom");
-        let witness_dir = root.join("build/jwt/jwt_js");
-        let r1cs_path = witness_dir.join("jwt.r1cs");
+        let r1cs_path = root.join("build/jwt/jwt.r1cs");
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
@@ -87,7 +86,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(r1cs_path);
+            let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
             // Pass None for witness during setup
             synthesize(cs, r1cs, None)?;
             return Ok(());
@@ -95,13 +94,24 @@ impl SpartanCircuit<E> for PrepareCircuit {
 
         let witness = self.get_or_generate_witness()?;
 
-        let r1cs = load_r1cs(r1cs_path);
+        let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
         synthesize(cs, r1cs, Some(witness))?;
         Ok(())
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        Ok(vec![])
+        // Circom public IO: ageClaim[0..95] (96 outputs), KeyBindingX, KeyBindingY
+        // Witness indices 1..=98
+        let layout = calculate_jwt_output_indices(MAX_MATCHES, MAX_CLAIMS_LENGTH);
+        let num_public = layout.age_claim_len + 2; // 96 + 2 = 98
+
+        let witness = self.get_or_generate_witness().ok();
+
+        let mut values = Vec::with_capacity(num_public);
+        for idx in 1..=num_public {
+            values.push(witness.as_ref().map(|w| w[idx]).unwrap_or(Scalar::ZERO));
+        }
+        Ok(values)
     }
 
     fn shared<CS: ConstraintSystem<Scalar>>(
