@@ -112,7 +112,7 @@ cargo run --release -- benchmark
 
 ### Mobile Benchmarks
 
-For the reproduction of mobile benchmarks, please check this repo: https://github.com/moven0831/spartan2-hyrax-mopro
+For the reproduction of mobile benchmarks, please check the [OpenAC mobile app directory](/wallet-unit-poc/mobile/)
 
 #### Prepare Circuit (Mobile)
 
