@@ -83,14 +83,9 @@ Before building for Android, install Android Studio and configure the NDK enviro
 
 #### 4(a). Generate Flutter Bindings
 
-Build bindings for your project by executing:
+These's already default [Flutter bindings](/wallet-unit-poc/mobile/mopro_flutter_bindings/), so no need to manually generate a new one.
 
-```sh
-# choose Flutter bindings with release mode
-mopro build
-```
-
-> For more details, see [Mopro Flutter Setup](https://zkmopro.org/docs/setup/flutter-setup)
+However, if you want to play around with your own tweak version, see [Mopro Flutter Setup](https://zkmopro.org/docs/setup/flutter-setup) for generating a custom bindings.
 
 #### 4(b). Connect Devices or Run Emulators
 
