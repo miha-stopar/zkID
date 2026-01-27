@@ -1,6 +1,6 @@
-# zkID Mobile Wallet-Unit-PoC 
+# OpenAC Mobile Wallet-Unit-PoC 
 
-Mobile App for OpenAC's [Wallet-Unit-PoC](/wallet-unit-poc/ecdsa-spartan2/), support both Android and iOS.
+Mobile App for [OpenAC Wallet-Unit-PoC](/wallet-unit-poc/ecdsa-spartan2/), support both Android and iOS through Flutter.
 
 ## Getting Started
 
@@ -10,28 +10,28 @@ Mobile App for OpenAC's [Wallet-Unit-PoC](/wallet-unit-poc/ecdsa-spartan2/), sup
 cargo install mopro-cli
 ```
 
-### 2. iOS Projects
+### 2. Android Configuration (Android targets only)
 
-### 2(a). Generate iOS Bindings
+Before building for Android, configure the Android NDK environment variables. The Rust FFI bindings require NDK for cross-compilation.
 
-Build bindings for your project by executing:
+1. Install NDK via Android Studio: `SDK Manager > SDK Tools > NDK (Side by Side)`
 
-```sh
-# choose iOS bindings with release mode
-mopro build
-```
+2. Set environment variables in your shell config (`~/.zshrc` or `~/.bashrc`):
 
-### 2(b). Update Bindings to iOS project
+    ```bash
+    # Android SDK
+    export ANDROID_HOME="$HOME/Library/Android/sdk"
 
-```sh
-mopro update
-```
+    # Find your NDK version
+    ls $ANDROID_HOME/ndk  # e.g., 26.1.10909125
 
-### 2(c). Open iOS project
+    # Set NDK path (replace version with yours)
+    export NDK_PATH="$ANDROID_HOME/ndk/26.1.10909125"
+    ```
 
-```sh
-open ios/MoproApp.xcodeproj
-```
+3. Reload your shell or run `source ~/.zshrc`
+
+> For more details, see [Mopro Prerequisites - Android Configuration](https://zkmopro.org/docs/prerequisites#android-configuration)
 
 ## 3. Flutter App
 
@@ -44,15 +44,7 @@ Build bindings for your project by executing:
 mopro build
 ```
 
-### 3(b). Exclude x86_64 iOS simulator in `mopro_flutter_bindings/ios/mopro_flutter_bindings.podspec`
-
-```podspec
-# Flutter.framework does not contain a i386 slice.
-# exclude x86_64 since w2c2 is not supported on x86_64-ios simulator build
-'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386 x86_64',
-```
-
-### 3(c). Connect Devices or Run Emulators
+### 3(b). Connect Devices or Run Emulators
 
 ```sh
 # Check Available Devices
@@ -62,9 +54,19 @@ flutter devices
 flutter emulator --launch <EMULATOR_TYPE>
 ```
 
-### 3(d). Run Flutter with Release Mode
+### 3(c). Run Flutter with Release Mode
 
 ```sh
 cd flutter
 flutter run --release
+```
+
+## Note
+
+### Excluded x86_64 iOS simulator in `mopro_flutter_bindings/ios/mopro_flutter_bindings.podspec`
+
+```podspec
+# Flutter.framework does not contain a i386 slice.
+# exclude x86_64 since w2c2 is not supported on x86_64-ios simulator build
+'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386 x86_64',
 ```
