@@ -2,3 +2,6 @@ target/
 build/
 
 Config.toml
+
+# GMP build cache
+.build-cache/
