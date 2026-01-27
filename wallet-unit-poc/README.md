@@ -121,8 +121,8 @@ For the reproduction of mobile benchmarks, please check the [OpenAC mobile app d
 
 |    Device    | Setup (ms) | Prove (ms) | Reblind (ms) | Verify (ms) |
 |:------------:|:----------:|:----------:|:------------:|:-----------:|
-|  iPhone 17   |    3499    |    2987    |     856      |     151     |
-| Pixel 10 Pro |    9233    |    7318    |     1750     |     318     |
+|  iPhone 17   |    3254    |    2102    |     884      |     137     |
+| Pixel 10 Pro |    9282    |    5161    |     1732     |     318     |
 
 ### Show Circuit Timing
 
@@ -131,9 +131,5 @@ The Show circuit has constant performance regardless of JWT payload size.
 
 |    Device    | Setup (ms) | Prove (ms) | Reblind (ms) | Verify (ms) |
 |:------------:|:----------:|:----------:|:------------:|:-----------:|
-|  iPhone 17   |     47     |     99     |      30      |     13      |
-| Pixel 10 Pro |    122     |    340     |     125      |     61      |
-
-| iPhone 17 | Pixel 10 Pro |
-|-----------|--------------|
-| <img src="https://github.com/user-attachments/assets/45cabf07-66e8-446a-add6-bf036b2f40fa" width="300"> | <img src="https://github.com/user-attachments/assets/2d9499d4-e06e-4dc2-9a12-41fe9033245b" width="300"> |
+|  iPhone 17   |     43     |     85     |      30      |     13      |
+| Pixel 10 Pro |     99     |    308     |     130      |     65      |
