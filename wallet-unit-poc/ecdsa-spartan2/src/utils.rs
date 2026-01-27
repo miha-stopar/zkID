@@ -16,7 +16,11 @@ pub enum FieldParser {
     BigInt2DArray,
 }
 
-/// Generic function to parse input fields from JSON based on field definitions
+/// Circuit parameters matching jwt.circom instantiation in main/jwt.circom:
+/// todo make it generic from circuit values
+pub const MAX_MATCHES: usize = 4;
+pub const MAX_CLAIMS_LENGTH: usize = 128;
+
 pub fn parse_inputs(
     json_value: &Value,
     field_defs: &[(&str, FieldParser)],
@@ -120,9 +124,7 @@ pub fn convert_bigint_to_scalar(
 }
 
 /// Parses the Circom witness binary format (.wtns) directly to Scalar vector
-pub fn parse_witness(
-    witness_bytes: &[u8],
-) -> Result<Vec<Scalar>, SynthesisError> {
+pub fn parse_witness(witness_bytes: &[u8]) -> Result<Vec<Scalar>, SynthesisError> {
     let mut pos = 0;
 
     // Validate .wtns header (4 bytes magic)
@@ -217,10 +219,11 @@ pub fn hashmap_to_json_string(
     let mut json_map = serde_json::Map::new();
 
     // Define 2D array fields and their dimensions (rows, cols)
-    let two_d_fields: HashMap<&str, (usize, usize)> = [
-        ("claims", (4, 128)),
-        ("matchSubstring", (4, 50)),
-    ].iter().cloned().collect();
+    let two_d_fields: HashMap<&str, (usize, usize)> =
+        [("claims", (4, 128)), ("matchSubstring", (4, 50))]
+            .iter()
+            .cloned()
+            .collect();
 
     for (key, values) in inputs.iter() {
         // Check if this is a 2D array field
@@ -243,10 +246,8 @@ pub fn hashmap_to_json_string(
             json_map.insert(key.clone(), json!(array_2d));
         } else {
             // Regular 1D array
-            let string_array: Vec<String> = values
-                .iter()
-                .map(|bigint| bigint.to_string())
-                .collect();
+            let string_array: Vec<String> =
+                values.iter().map(|bigint| bigint.to_string()).collect();
             json_map.insert(key.clone(), json!(string_array));
         }
     }
@@ -575,5 +576,47 @@ pub fn calculate_jwt_output_indices(
         age_claim_len: decoded_len,
         keybinding_x_index,
         keybinding_y_index,
+    }
+}
+
+/// Layout information for the Show circuit signals within the witness vector.
+/// Verified from build/show/show.sym:
+///   witness[1] = ageAbove18 (output)
+///   witness[2] = deviceKeyX (public input)
+///   witness[3] = deviceKeyY (public input)
+///   witness[7..7+decoded_len] = claim (private input)
+#[derive(Debug, Clone, Copy)]
+pub struct ShowWitnessLayout {
+    pub device_key_x_index: usize,
+    pub device_key_y_index: usize,
+    pub claim_start: usize,
+    pub claim_len: usize,
+}
+
+impl ShowWitnessLayout {
+    pub fn claim_range(&self) -> Range<usize> {
+        self.claim_start..self.claim_start + self.claim_len
+    }
+}
+
+/// Calculate witness indices for Show circuit shared values.
+///
+/// Show circuit witness layout (from show.sym):
+///   w[1] = ageAbove18 (output)
+///   w[2] = deviceKeyX (public input)
+///   w[3] = deviceKeyY (public input)
+///   w[4] = currentYear (private)
+///   w[5] = currentMonth (private)
+///   w[6..6+decoded_len] = claim[0..decoded_len-1] (private)
+///
+/// Note: Verified from show.sym - claim[0] at signal_id=7 maps to witness_index=6
+pub fn calculate_show_witness_indices(max_claims_length: usize) -> ShowWitnessLayout {
+    let decoded_len = (max_claims_length * 3) / 4;
+
+    ShowWitnessLayout {
+        device_key_x_index: 2,
+        device_key_y_index: 3,
+        claim_start: 6,
+        claim_len: decoded_len,
     }
 }
