@@ -347,7 +347,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     let verify_show_ms = t0.elapsed().as_millis();
     println!("✓ Show proof verified: {} ms", verify_show_ms);
     if !show_public_values.is_empty() {
-        println!("Show public IO: {:?}", show_public_values);
+        // println!("Show public IO: {:?}", show_public_values);
         let age_above_18 = show_public_values[0] == Field::ONE;
         println!("  ageAbove18: {}\n", age_above_18);
     }
