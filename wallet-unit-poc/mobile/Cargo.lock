@@ -707,7 +707,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "spartan2 0.4.0 (git+https://github.com/therealyingtong/Spartan2.git?branch=zk)",
+ "spartan2",
  "tracing",
  "tracing-subscriber",
  "witnesscalc-adapter",
@@ -1561,7 +1561,7 @@ dependencies = [
  "serde",
  "sha2",
  "sha3",
- "spartan2 0.4.0 (git+https://github.com/moven0831/Spartan2.git?branch=chore%2Fpublic-reblind-api)",
+ "spartan2",
  "subtle",
  "tempfile",
  "thiserror 2.0.12",
@@ -2162,38 +2162,6 @@ name = "smawk"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
-
-[[package]]
-name = "spartan2"
-version = "0.4.0"
-source = "git+https://github.com/moven0831/Spartan2.git?branch=chore%2Fpublic-reblind-api#98ccf4a6cfb5233fdfe735d2e184efc81e723d9c"
-dependencies = [
- "bellpepper",
- "bellpepper-core",
- "bincode",
- "bitvec",
- "byteorder",
- "digest",
- "ff",
- "flate2",
- "generic-array",
- "getrandom 0.2.16",
- "group",
- "halo2curves",
- "itertools 0.14.0",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "once_cell",
- "rand_core",
- "rayon",
- "serde",
- "sha3",
- "subtle",
- "thiserror 2.0.12",
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "spartan2"
