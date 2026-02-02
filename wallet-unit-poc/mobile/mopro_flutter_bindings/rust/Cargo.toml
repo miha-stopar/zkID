@@ -4,7 +4,7 @@ flutter_rust_bridge = "=2.11.1"
 [dependencies.openac-mobile-app]
 default-features = false
 features = ["flutter"]
-path = "/Users/moventsai/Projects/zkID/mine/zkID/wallet-unit-poc/mobile"
+path = "../.."
 version = "0.1.0"
 
 [lib]
