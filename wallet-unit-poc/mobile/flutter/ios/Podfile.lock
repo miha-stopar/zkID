@@ -1,0 +1,28 @@
+PODS:
+  - Flutter (1.0.0)
+  - integration_test (0.0.1):
+    - Flutter
+  - mopro_flutter_bindings (0.0.1):
+    - Flutter
+
+DEPENDENCIES:
+  - Flutter (from `Flutter`)
+  - integration_test (from `.symlinks/plugins/integration_test/ios`)
+  - mopro_flutter_bindings (from `.symlinks/plugins/mopro_flutter_bindings/ios`)
+
+EXTERNAL SOURCES:
+  Flutter:
+    :path: Flutter
+  integration_test:
+    :path: ".symlinks/plugins/integration_test/ios"
+  mopro_flutter_bindings:
+    :path: ".symlinks/plugins/mopro_flutter_bindings/ios"
+
+SPEC CHECKSUMS:
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
+  mopro_flutter_bindings: 8f83966b4d7fea00976d376d012addf968f3c469
+
+PODFILE CHECKSUM: e21a66e24e78eeb752b2a94481de1c244c558500
+
+COCOAPODS: 1.16.2

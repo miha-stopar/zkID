@@ -20,12 +20,14 @@
 
 use ecdsa_spartan2::{
     generate_shared_blinds, load_instance, load_proof, load_shared_blinds, load_witness,
+    paths::keys::{
+        PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY,
+        PREPARE_WITNESS, SHARED_BLINDS, SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY,
+        SHOW_VERIFYING_KEY, SHOW_WITNESS,
+    },
     prove_circuit, prove_circuit_with_pk, reblind, reblind_with_loaded_data, run_circuit,
-    save_keys, setup::PREPARE_INSTANCE, setup::PREPARE_PROOF, setup::PREPARE_PROVING_KEY,
-    setup::PREPARE_VERIFYING_KEY, setup::PREPARE_WITNESS, setup::SHARED_BLINDS,
-    setup::SHOW_INSTANCE, setup::SHOW_PROOF, setup::SHOW_PROVING_KEY, setup::SHOW_VERIFYING_KEY,
-    setup::SHOW_WITNESS, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
-    verify_circuit_with_loaded_data, PrepareCircuit, ShowCircuit, E,
+    save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
+    verify_circuit_with_loaded_data, PathConfig, PrepareCircuit, ShowCircuit, E,
 };
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
 use tracing::info;
@@ -208,13 +210,15 @@ fn main() {
 
 /// Run the complete benchmark pipeline for a given input file
 fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
+    let path_config = PathConfig::development();
+
     println!("\n╔════════════════════════════════════════════════╗");
     println!("║     STARTING COMPLETE BENCHMARK PIPELINE       ║");
     println!("╚════════════════════════════════════════════════╝\n");
 
     // Step 1: Setup Prepare Circuit
     info!("Step 1/9: Setting up Prepare circuit...");
-    let prepare_circuit = PrepareCircuit::new(input_path.clone());
+    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
     let t0 = Instant::now();
     let (prepare_pk, prepare_vk) = setup_circuit_keys_no_save(prepare_circuit);
     let prepare_setup_ms = t0.elapsed().as_millis();
@@ -222,8 +226,8 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     // Save Prepare keys after timing
     if let Err(e) = save_keys(
-        PREPARE_PROVING_KEY,
-        PREPARE_VERIFYING_KEY,
+        path_config.key_path(PREPARE_PROVING_KEY),
+        path_config.key_path(PREPARE_VERIFYING_KEY),
         &prepare_pk,
         &prepare_vk,
     ) {
@@ -233,14 +237,19 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     // Step 2: Setup Show Circuit
     info!("Step 2/9: Setting up Show circuit...");
-    let show_circuit = ShowCircuit::new(input_path.clone());
+    let show_circuit = ShowCircuit::new(path_config.clone(), input_path.clone());
     let t0 = Instant::now();
     let (show_pk, show_vk) = setup_circuit_keys_no_save(show_circuit);
     let show_setup_ms = t0.elapsed().as_millis();
     println!("✓ Show setup completed: {} ms\n", show_setup_ms);
 
     // Save Show keys after timing
-    if let Err(e) = save_keys(SHOW_PROVING_KEY, SHOW_VERIFYING_KEY, &show_pk, &show_vk) {
+    if let Err(e) = save_keys(
+        path_config.key_path(SHOW_PROVING_KEY),
+        path_config.key_path(SHOW_VERIFYING_KEY),
+        &show_pk,
+        &show_vk,
+    ) {
         eprintln!("Failed to save Show keys: {}", e);
         std::process::exit(1);
     }
@@ -248,7 +257,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 3: Generate Shared Blinds
     info!("Step 3/9: Generating shared blinds...");
     let t0 = Instant::now();
-    generate_shared_blinds::<E>(SHARED_BLINDS, NUM_SHARED);
+    generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
     let generate_blinds_ms = t0.elapsed().as_millis();
     println!("✓ Shared blinds generated: {} ms\n", generate_blinds_ms);
 
@@ -257,13 +266,13 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 4: Prove Prepare Circuit
     info!("Step 4/9: Proving Prepare circuit...");
     let t0 = Instant::now();
-    let prepare_circuit = PrepareCircuit::new(input_path.clone());
+    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
     prove_circuit_with_pk(
         prepare_circuit,
         &prepare_pk,
-        PREPARE_INSTANCE,
-        PREPARE_WITNESS,
-        PREPARE_PROOF,
+        path_config.artifact_path(PREPARE_INSTANCE),
+        path_config.artifact_path(PREPARE_WITNESS),
+        path_config.artifact_path(PREPARE_PROOF),
     );
     let prove_prepare_ms = t0.elapsed().as_millis();
     println!("✓ Prepare proof generated: {} ms\n", prove_prepare_ms);
@@ -271,9 +280,12 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 5: Reblind Prepare
     info!("Step 5/9: Reblinding Prepare proof...");
     // Load data before timing (file I/O should not be part of reblind benchmark)
-    let prepare_instance = load_instance(PREPARE_INSTANCE).expect("load prepare instance failed");
-    let prepare_witness = load_witness(PREPARE_WITNESS).expect("load prepare witness failed");
-    let shared_blinds = load_shared_blinds::<E>(SHARED_BLINDS).expect("load shared_blinds failed");
+    let prepare_instance =
+        load_instance(path_config.artifact_path(PREPARE_INSTANCE)).expect("load prepare instance failed");
+    let prepare_witness =
+        load_witness(path_config.artifact_path(PREPARE_WITNESS)).expect("load prepare witness failed");
+    let shared_blinds =
+        load_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS)).expect("load shared_blinds failed");
 
     let t0 = Instant::now();
     reblind_with_loaded_data(
@@ -282,9 +294,9 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
         prepare_instance,
         prepare_witness,
         &shared_blinds,
-        PREPARE_INSTANCE,
-        PREPARE_WITNESS,
-        PREPARE_PROOF,
+        path_config.artifact_path(PREPARE_INSTANCE),
+        path_config.artifact_path(PREPARE_WITNESS),
+        path_config.artifact_path(PREPARE_PROOF),
     );
     let reblind_prepare_ms = t0.elapsed().as_millis();
     println!("✓ Prepare proof reblinded: {} ms\n", reblind_prepare_ms);
@@ -292,13 +304,13 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 6: Prove Show Circuit
     info!("Step 6/9: Proving Show circuit...");
     let t0 = Instant::now();
-    let show_circuit = ShowCircuit::new(input_path.clone());
+    let show_circuit = ShowCircuit::new(path_config.clone(), input_path.clone());
     prove_circuit_with_pk(
         show_circuit,
         &show_pk,
-        SHOW_INSTANCE,
-        SHOW_WITNESS,
-        SHOW_PROOF,
+        path_config.artifact_path(SHOW_INSTANCE),
+        path_config.artifact_path(SHOW_WITNESS),
+        path_config.artifact_path(SHOW_PROOF),
     );
     let prove_show_ms = t0.elapsed().as_millis();
     println!("✓ Show proof generated: {} ms\n", prove_show_ms);
@@ -306,8 +318,10 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 7: Reblind Show
     info!("Step 7/9: Reblinding Show proof...");
     // Load data before timing (file I/O should not be part of reblind benchmark)
-    let show_instance = load_instance(SHOW_INSTANCE).expect("load show instance failed");
-    let show_witness = load_witness(SHOW_WITNESS).expect("load show witness failed");
+    let show_instance =
+        load_instance(path_config.artifact_path(SHOW_INSTANCE)).expect("load show instance failed");
+    let show_witness =
+        load_witness(path_config.artifact_path(SHOW_WITNESS)).expect("load show witness failed");
     // Reuse shared_blinds from Prepare step (already loaded)
 
     let t0 = Instant::now();
@@ -317,9 +331,9 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
         show_instance,
         show_witness,
         &shared_blinds,
-        SHOW_INSTANCE,
-        SHOW_WITNESS,
-        SHOW_PROOF,
+        path_config.artifact_path(SHOW_INSTANCE),
+        path_config.artifact_path(SHOW_WITNESS),
+        path_config.artifact_path(SHOW_PROOF),
     );
     let reblind_show_ms = t0.elapsed().as_millis();
     println!("✓ Show proof reblinded: {} ms\n", reblind_show_ms);
@@ -327,7 +341,8 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 8: Verify Prepare
     info!("Step 8/9: Verifying Prepare proof...");
     // Load proof and verifying key before timing (file I/O should not be part of verify benchmark)
-    let prepare_proof = load_proof(PREPARE_PROOF).expect("load prepare proof failed");
+    let prepare_proof =
+        load_proof(path_config.artifact_path(PREPARE_PROOF)).expect("load prepare proof failed");
     // Reuse prepare_vk from setup step (already in memory)
 
     let t0 = Instant::now();
@@ -338,7 +353,8 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 9: Verify Show
     info!("Step 9/9: Verifying Show proof...");
     // Load proof and verifying key before timing (file I/O should not be part of verify benchmark)
-    let show_proof = load_proof(SHOW_PROOF).expect("load show proof failed");
+    let show_proof =
+        load_proof(path_config.artifact_path(SHOW_PROOF)).expect("load show proof failed");
     // Reuse show_vk from setup step (already in memory)
 
     let t0 = Instant::now();
@@ -348,14 +364,22 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     // Measure file sizes
     info!("Measuring artifact sizes...");
-    let prepare_proving_key_bytes = get_file_size(PREPARE_PROVING_KEY);
-    let prepare_verifying_key_bytes = get_file_size(PREPARE_VERIFYING_KEY);
-    let show_proving_key_bytes = get_file_size(SHOW_PROVING_KEY);
-    let show_verifying_key_bytes = get_file_size(SHOW_VERIFYING_KEY);
-    let prepare_proof_bytes = get_file_size(PREPARE_PROOF);
-    let show_proof_bytes = get_file_size(SHOW_PROOF);
-    let prepare_witness_bytes = get_file_size(PREPARE_WITNESS);
-    let show_witness_bytes = get_file_size(SHOW_WITNESS);
+    let prepare_proving_key_bytes =
+        get_file_size(&path_config.key_path(PREPARE_PROVING_KEY).to_string_lossy());
+    let prepare_verifying_key_bytes =
+        get_file_size(&path_config.key_path(PREPARE_VERIFYING_KEY).to_string_lossy());
+    let show_proving_key_bytes =
+        get_file_size(&path_config.key_path(SHOW_PROVING_KEY).to_string_lossy());
+    let show_verifying_key_bytes =
+        get_file_size(&path_config.key_path(SHOW_VERIFYING_KEY).to_string_lossy());
+    let prepare_proof_bytes =
+        get_file_size(&path_config.artifact_path(PREPARE_PROOF).to_string_lossy());
+    let show_proof_bytes =
+        get_file_size(&path_config.artifact_path(SHOW_PROOF).to_string_lossy());
+    let prepare_witness_bytes =
+        get_file_size(&path_config.artifact_path(PREPARE_WITNESS).to_string_lossy());
+    let show_witness_bytes =
+        get_file_size(&path_config.artifact_path(SHOW_WITNESS).to_string_lossy());
 
     BenchmarkResults {
         prepare_setup_ms,
@@ -379,49 +403,58 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 }
 
 fn execute_prepare(action: CircuitAction, options: CommandOptions) {
+    let path_config = PathConfig::development();
+
     match action {
         CircuitAction::Setup => {
             info!(
                 input = ?options.input,
                 "Setting up Spartan-2 keys for the Prepare circuit"
             );
-            let circuit = PrepareCircuit::new(options.input.clone());
-            setup_circuit_keys(circuit, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY);
+            let circuit = PrepareCircuit::new(path_config.clone(), options.input.clone());
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(PREPARE_PROVING_KEY),
+                path_config.key_path(PREPARE_VERIFYING_KEY),
+            );
         }
         CircuitAction::Run => {
-            let circuit = PrepareCircuit::new(options.input.clone());
+            let circuit = PrepareCircuit::new(path_config, options.input.clone());
             info!("Running Prepare circuit with ZK-Spartan");
             run_circuit(circuit);
         }
         CircuitAction::Prove => {
-            let circuit = PrepareCircuit::new(options.input.clone());
+            let circuit = PrepareCircuit::new(path_config.clone(), options.input.clone());
             info!("Proving Prepare circuit with ZK-Spartan");
             prove_circuit(
                 circuit,
-                PREPARE_PROVING_KEY,
-                PREPARE_INSTANCE,
-                PREPARE_WITNESS,
-                PREPARE_PROOF,
+                path_config.key_path(PREPARE_PROVING_KEY),
+                path_config.artifact_path(PREPARE_INSTANCE),
+                path_config.artifact_path(PREPARE_WITNESS),
+                path_config.artifact_path(PREPARE_PROOF),
             );
         }
         CircuitAction::Verify => {
             info!("Verifying Prepare proof with ZK-Spartan");
-            verify_circuit(PREPARE_PROOF, PREPARE_VERIFYING_KEY);
+            verify_circuit(
+                path_config.artifact_path(PREPARE_PROOF),
+                path_config.key_path(PREPARE_VERIFYING_KEY),
+            );
         }
         CircuitAction::Reblind => {
             info!("Reblind Spartan sumcheck + Hyrax PCS Prepare");
             reblind(
                 PrepareCircuit::default(),
-                PREPARE_PROVING_KEY,
-                PREPARE_INSTANCE,
-                PREPARE_WITNESS,
-                PREPARE_PROOF,
-                SHARED_BLINDS,
+                path_config.key_path(PREPARE_PROVING_KEY),
+                path_config.artifact_path(PREPARE_INSTANCE),
+                path_config.artifact_path(PREPARE_WITNESS),
+                path_config.artifact_path(PREPARE_PROOF),
+                path_config.artifact_path(SHARED_BLINDS),
             );
         }
         CircuitAction::GenerateSharedBlinds => {
             info!("Generating shared blinds for Spartan-2 circuits");
-            generate_shared_blinds::<E>(SHARED_BLINDS, NUM_SHARED);
+            generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
         }
         CircuitAction::Benchmark => {
             let results = run_complete_pipeline(options.input);
@@ -431,41 +464,50 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
 }
 
 fn execute_show(action: CircuitAction, options: CommandOptions) {
+    let path_config = PathConfig::development();
+
     match action {
         CircuitAction::Setup => {
             info!(input = ?options.input, "Setting up Spartan-2 keys for the Show circuit");
-            let circuit = ShowCircuit::new(options.input.clone());
-            setup_circuit_keys(circuit, SHOW_PROVING_KEY, SHOW_VERIFYING_KEY);
+            let circuit = ShowCircuit::new(path_config.clone(), options.input.clone());
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(SHOW_PROVING_KEY),
+                path_config.key_path(SHOW_VERIFYING_KEY),
+            );
         }
         CircuitAction::Run => {
-            let circuit = ShowCircuit::new(options.input.clone());
+            let circuit = ShowCircuit::new(path_config, options.input.clone());
             info!("Running Show circuit with ZK-Spartan");
             run_circuit(circuit);
         }
         CircuitAction::Prove => {
-            let circuit = ShowCircuit::new(options.input.clone());
+            let circuit = ShowCircuit::new(path_config.clone(), options.input.clone());
             info!("Proving Show circuit with ZK-Spartan");
             prove_circuit(
                 circuit,
-                SHOW_PROVING_KEY,
-                SHOW_INSTANCE,
-                SHOW_WITNESS,
-                SHOW_PROOF,
+                path_config.key_path(SHOW_PROVING_KEY),
+                path_config.artifact_path(SHOW_INSTANCE),
+                path_config.artifact_path(SHOW_WITNESS),
+                path_config.artifact_path(SHOW_PROOF),
             );
         }
         CircuitAction::Verify => {
             info!("Verifying Show proof with ZK-Spartan");
-            verify_circuit(SHOW_PROOF, SHOW_VERIFYING_KEY);
+            verify_circuit(
+                path_config.artifact_path(SHOW_PROOF),
+                path_config.key_path(SHOW_VERIFYING_KEY),
+            );
         }
         CircuitAction::Reblind => {
             info!("Reblind Spartan sumcheck + Hyrax PCS Show");
             reblind(
                 ShowCircuit::default(),
-                SHOW_PROVING_KEY,
-                SHOW_INSTANCE,
-                SHOW_WITNESS,
-                SHOW_PROOF,
-                SHARED_BLINDS,
+                path_config.key_path(SHOW_PROVING_KEY),
+                path_config.artifact_path(SHOW_INSTANCE),
+                path_config.artifact_path(SHOW_WITNESS),
+                path_config.artifact_path(SHOW_PROOF),
+                path_config.artifact_path(SHARED_BLINDS),
             );
         }
         CircuitAction::GenerateSharedBlinds => {
