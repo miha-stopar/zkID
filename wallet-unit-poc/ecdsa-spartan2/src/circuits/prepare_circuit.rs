@@ -1,4 +1,5 @@
 use crate::{
+    paths::PathConfig,
     prover::generate_prepare_witness,
     utils::{calculate_jwt_output_indices, MAX_CLAIMS_LENGTH, MAX_MATCHES},
     Scalar, E,
@@ -9,7 +10,6 @@ use ff::Field;
 use spartan2::traits::circuit::SpartanCircuit;
 use std::{
     any::type_name,
-    env::current_dir,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -19,13 +19,18 @@ witnesscalc_adapter::witness!(jwt);
 /// PrepareCircuit wraps the JWT verification circuit.
 #[derive(Debug, Clone)]
 pub struct PrepareCircuit {
+    /// Path configuration for resolving file paths
+    path_config: PathConfig,
+    /// Optional override for input JSON path
     input_path: Option<PathBuf>,
+    /// Cached witness for reuse across synthesize and shared calls
     cached_witness: Arc<Mutex<Option<Vec<Scalar>>>>,
 }
 
 impl Default for PrepareCircuit {
     fn default() -> Self {
         Self {
+            path_config: PathConfig::default(),
             input_path: None,
             cached_witness: Arc::new(Mutex::new(None)),
         }
@@ -33,21 +38,36 @@ impl Default for PrepareCircuit {
 }
 
 impl PrepareCircuit {
-    pub fn new<P: Into<Option<PathBuf>>>(path: P) -> Self {
+    /// Create a new PrepareCircuit with PathConfig and optional input path override.
+    pub fn new(path_config: PathConfig, input_path: Option<PathBuf>) -> Self {
         Self {
+            path_config,
+            input_path,
+            cached_witness: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Create from just an input path (for backwards compatibility).
+    /// Uses development PathConfig.
+    pub fn with_input_path<P: Into<Option<PathBuf>>>(path: P) -> Self {
+        Self {
+            path_config: PathConfig::development(),
             input_path: path.into(),
             cached_witness: Arc::new(Mutex::new(None)),
         }
     }
 
-    fn input_path_absolute(&self, cwd: &PathBuf) -> Option<PathBuf> {
-        self.input_path.as_ref().map(|p| {
-            if p.is_absolute() {
-                p.clone()
-            } else {
-                cwd.join(p)
-            }
-        })
+    /// Resolve the input JSON path using PathConfig.
+    fn resolve_input_json(&self) -> PathBuf {
+        self.input_path
+            .as_ref()
+            .map(|p| self.path_config.resolve(p))
+            .unwrap_or_else(|| self.path_config.input_json("jwt"))
+    }
+
+    /// Get the R1CS file path.
+    fn r1cs_path(&self) -> PathBuf {
+        self.path_config.r1cs_path("jwt")
     }
 
     /// Get cached witness or generate and cache it.
@@ -58,9 +78,10 @@ impl PrepareCircuit {
             return Ok(witness.clone());
         }
 
-        let cwd = current_dir().unwrap();
-        let input_path = self.input_path_absolute(&cwd);
-        let witness = generate_prepare_witness(input_path.as_ref().map(|p| p.as_path()))?;
+        let witness = generate_prepare_witness(
+            &self.path_config,
+            self.input_path.as_ref().map(|p| p.as_path()),
+        )?;
 
         *cache = Some(witness.clone());
 
@@ -76,9 +97,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        let cwd = current_dir().unwrap();
-        let root = cwd.join("../circom");
-        let r1cs_path = root.join("build/jwt/jwt.r1cs");
+        let r1cs_path = self.r1cs_path();
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
@@ -86,7 +105,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
+            let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
             // Pass None for witness during setup
             synthesize(cs, r1cs, None)?;
             return Ok(());
@@ -94,7 +113,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
 
         let witness = self.get_or_generate_witness()?;
 
-        let r1cs = load_r1cs(r1cs_path).expect("failed to load R1CS");
+        let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
         synthesize(cs, r1cs, Some(witness))?;
         Ok(())
     }
