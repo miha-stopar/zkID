@@ -8,6 +8,6 @@ The goal of this work is to provide a framework that allows verifiers to reliabl
 
 ## Resources
 
-- Merkle Tree-based Revocation Methods: https://hackmd.io/@vplasencia/ryRJo9uilx
+- Revocation in zkID: Merkle Tree-based Approaches: https://pse.dev/blog/revocation-in-zkid-merkle-tree-based-approaches
 
 - DIF Revocation Report: https://github.com/decentralized-identity/labs-privacy-preserving-revocation-mechanisms/blob/main/docs/report.md
