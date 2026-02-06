@@ -1,9 +1,14 @@
 use crate::{paths::PathConfig, utils::*, Scalar, E};
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
 use circom_scotia::{reader::load_r1cs, synthesize};
-use serde_json::Value;
+use ff::Field;
 use spartan2::traits::circuit::SpartanCircuit;
-use std::{any::type_name, fs::File, path::PathBuf, time::Instant};
+use std::{
+    any::type_name,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use tracing::info;
 
 witnesscalc_adapter::witness!(show);
@@ -15,6 +20,8 @@ pub struct ShowCircuit {
     path_config: PathConfig,
     /// Optional override for input JSON path
     input_path: Option<PathBuf>,
+    /// Cached witness for reuse across synthesize and shared calls
+    cached_witness: Arc<Mutex<Option<Vec<Scalar>>>>,
 }
 
 impl Default for ShowCircuit {
@@ -22,6 +29,7 @@ impl Default for ShowCircuit {
         Self {
             path_config: PathConfig::default(),
             input_path: None,
+            cached_witness: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -32,6 +40,7 @@ impl ShowCircuit {
         Self {
             path_config,
             input_path,
+            cached_witness: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -41,6 +50,7 @@ impl ShowCircuit {
         Self {
             path_config: PathConfig::development(),
             input_path: path.into(),
+            cached_witness: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -57,11 +67,38 @@ impl ShowCircuit {
         self.path_config.r1cs_path("show")
     }
 
-    fn load_inputs(&self) -> Result<Value, SynthesisError> {
+    /// Get cached witness or generate and cache it.
+    fn get_or_generate_witness(&self) -> Result<Vec<Scalar>, SynthesisError> {
+        let mut cache = self.cached_witness.lock().unwrap();
+
+        if let Some(ref witness) = *cache {
+            return Ok(witness.clone());
+        }
+
         let path = self.resolve_input_json();
         info!("Loading show inputs from {}", path.display());
-        let file = File::open(&path).map_err(|_| SynthesisError::AssignmentMissing)?;
-        serde_json::from_reader(file).map_err(|_| SynthesisError::AssignmentMissing)
+
+        let file = std::fs::File::open(&path).map_err(|_| SynthesisError::AssignmentMissing)?;
+        let json_value: serde_json::Value =
+            serde_json::from_reader(file).map_err(|_| SynthesisError::AssignmentMissing)?;
+
+        let inputs = parse_show_inputs(&json_value)?;
+
+        info!("Generating witness using witnesscalc...");
+        let t0 = Instant::now();
+
+        let inputs_json = hashmap_to_json_string(&inputs)?;
+        let witness_bytes =
+            show_witness(&inputs_json).map_err(|_| SynthesisError::Unsatisfiable)?;
+
+        info!("witnesscalc time: {} ms", t0.elapsed().as_millis());
+
+        let witness = parse_witness(&witness_bytes)?;
+
+        // Cache it
+        *cache = Some(witness.clone());
+
+        Ok(witness)
     }
 }
 
@@ -74,10 +111,6 @@ impl SpartanCircuit<E> for ShowCircuit {
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
         let r1cs_path = self.r1cs_path();
-        let json_value = self.load_inputs()?;
-
-        // Parse inputs using declarative field definitions
-        let inputs = parse_show_inputs(&json_value)?;
 
         // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
         // During setup, we only need constraint structure instead of actual witness values
@@ -85,71 +118,77 @@ impl SpartanCircuit<E> for ShowCircuit {
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(&r1cs_path);
+            let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
             // Pass None for witness during setup
             synthesize(cs, r1cs, None)?;
             return Ok(());
         }
 
-        // Generate witness using witnesscalc
-        info!("Generating witness using witnesscalc...");
-        let t0 = Instant::now();
+        // Use cached witness (same as shared() used) for soundness
+        let witness = self.get_or_generate_witness()?;
 
-        let inputs_json = hashmap_to_json_string(&inputs)?;
-
-        // Generate raw witness bytes
-        let witness_bytes =
-            show_witness(&inputs_json).map_err(|_| SynthesisError::Unsatisfiable)?;
-
-        info!("witnesscalc time: {} ms", t0.elapsed().as_millis());
-
-        // Parse witness bytes directly to Scalar
-        let witness = parse_witness(&witness_bytes)?;
-
-        let r1cs = load_r1cs(&r1cs_path);
+        let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
         synthesize(cs, r1cs, Some(witness))?;
         Ok(())
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        Ok(vec![])
+        // Circom public IO: ageAbove18 (output), deviceKeyX, deviceKeyY (inputs)
+        // Witness indices 1..=3
+        let witness = self.get_or_generate_witness().ok();
+
+        let mut values = Vec::with_capacity(3);
+        for idx in 1..=3 {
+            values.push(witness.as_ref().map(|w| w[idx]).unwrap_or(Scalar::ZERO));
+        }
+        Ok(values)
     }
+
     fn shared<CS: ConstraintSystem<Scalar>>(
         &self,
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-        let json_value = self.load_inputs()?;
+        // Calculate witness layout (verified from show.sym)
+        let layout = calculate_show_witness_indices(MAX_CLAIMS_LENGTH);
 
-        let inputs = parse_show_inputs(&json_value)?;
-        let keybinding_x_bigint = inputs.get("deviceKeyX").unwrap()[0].clone();
-        let keybinding_y_bigint = inputs.get("deviceKeyY").unwrap()[0].clone();
-        let claim_bigints = inputs
-            .get("claim")
-            .cloned()
-            .ok_or(SynthesisError::AssignmentMissing)?;
+        // Try to get witness; use zeros if unavailable (setup phase)
+        // Only attempt witness generation if input path is set (skips during setup)
+        let witness = self
+            .input_path
+            .as_ref()
+            .and_then(|_| self.get_or_generate_witness().ok());
 
-        let keybinding_x = bigint_to_scalar(keybinding_x_bigint)?;
-        let keybinding_y = bigint_to_scalar(keybinding_y_bigint)?;
-        let claim_scalars = convert_bigint_to_scalar(claim_bigints)?;
+        let device_key_x = witness
+            .as_ref()
+            .map(|w| w[layout.device_key_x_index])
+            .unwrap_or(Scalar::ZERO);
+        let device_key_y = witness
+            .as_ref()
+            .map(|w| w[layout.device_key_y_index])
+            .unwrap_or(Scalar::ZERO);
 
-        let kb_x = AllocatedNum::alloc(cs.namespace(|| "KeyBindingX"), || Ok(keybinding_x))?;
-        let kb_y = AllocatedNum::alloc(cs.namespace(|| "KeyBindingY"), || Ok(keybinding_y))?;
+        let kb_x = AllocatedNum::alloc(cs.namespace(|| "KeyBindingX"), || Ok(device_key_x))?;
+        let kb_y = AllocatedNum::alloc(cs.namespace(|| "KeyBindingY"), || Ok(device_key_y))?;
 
-        let mut shared_values = Vec::with_capacity(2 + claim_scalars.len());
+        let mut shared_values = Vec::with_capacity(2 + layout.claim_len);
         shared_values.push(kb_x);
         shared_values.push(kb_y);
 
-        for (idx, claim_scalar) in claim_scalars.into_iter().enumerate() {
-            let claim_value = claim_scalar;
+        for idx in 0..layout.claim_len {
+            let claim_scalar = witness
+                .as_ref()
+                .map(|w| w[layout.claim_start + idx])
+                .unwrap_or(Scalar::ZERO);
             let claim_alloc =
                 AllocatedNum::alloc(cs.namespace(|| format!("Claim{idx}")), move || {
-                    Ok(claim_value)
+                    Ok(claim_scalar)
                 })?;
             shared_values.push(claim_alloc);
         }
 
         Ok(shared_values)
     }
+
     fn precommitted<CS: ConstraintSystem<Scalar>>(
         &self,
         _cs: &mut CS,
@@ -157,6 +196,7 @@ impl SpartanCircuit<E> for ShowCircuit {
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
         Ok(vec![])
     }
+
     fn num_challenges(&self) -> usize {
         0
     }

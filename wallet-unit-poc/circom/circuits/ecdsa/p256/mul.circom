@@ -180,10 +180,10 @@ template K_add() {
     signal klo <== (slo + tQlo + borrow.out * (2 ** 128)) - isQuotientOne.out * qlo;
     signal khi <== (shi + tQhi - borrow.out * 1)  - isQuotientOne.out * qhi;
 
-    component kloBits = Num2Bits(256);
+    component kloBits = Num2Bits(128);
     kloBits.in <== klo;
 
-    component khiBits = Num2Bits(256);
+    component khiBits = Num2Bits(128);
     khiBits.in <== khi;
 
     for (var i = 0; i < 128; i++) {

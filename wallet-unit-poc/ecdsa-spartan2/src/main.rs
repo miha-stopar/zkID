@@ -29,6 +29,7 @@ use ecdsa_spartan2::{
     save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
     verify_circuit_with_loaded_data, PathConfig, PrepareCircuit, ShowCircuit, E,
 };
+use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -280,16 +281,16 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Step 5: Reblind Prepare
     info!("Step 5/9: Reblinding Prepare proof...");
     // Load data before timing (file I/O should not be part of reblind benchmark)
-    let prepare_instance =
-        load_instance(path_config.artifact_path(PREPARE_INSTANCE)).expect("load prepare instance failed");
-    let prepare_witness =
-        load_witness(path_config.artifact_path(PREPARE_WITNESS)).expect("load prepare witness failed");
-    let shared_blinds =
-        load_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS)).expect("load shared_blinds failed");
+    let prepare_instance = load_instance(path_config.artifact_path(PREPARE_INSTANCE))
+        .expect("load prepare instance failed");
+    let prepare_witness = load_witness(path_config.artifact_path(PREPARE_WITNESS))
+        .expect("load prepare witness failed");
+    let shared_blinds = load_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS))
+        .expect("load shared_blinds failed");
 
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        PrepareCircuit::default(),
+        PrepareCircuit::new(path_config.clone(), input_path.clone()),
         &prepare_pk,
         prepare_instance,
         prepare_witness,
@@ -326,7 +327,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
 
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        ShowCircuit::default(),
+        ShowCircuit::new(path_config.clone(), input_path.clone()),
         &show_pk,
         show_instance,
         show_witness,
@@ -346,7 +347,7 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Reuse prepare_vk from setup step (already in memory)
 
     let t0 = Instant::now();
-    verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
+    let _prepare_public_values = verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
     let verify_prepare_ms = t0.elapsed().as_millis();
     println!("✓ Prepare proof verified: {} ms\n", verify_prepare_ms);
 
@@ -358,24 +359,31 @@ fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
     // Reuse show_vk from setup step (already in memory)
 
     let t0 = Instant::now();
-    verify_circuit_with_loaded_data(&show_proof, &show_vk);
+    let show_public_values = verify_circuit_with_loaded_data(&show_proof, &show_vk);
     let verify_show_ms = t0.elapsed().as_millis();
-    println!("✓ Show proof verified: {} ms\n", verify_show_ms);
+    println!("✓ Show proof verified: {} ms", verify_show_ms);
+    if !show_public_values.is_empty() {
+        // println!("Show public IO: {:?}", show_public_values);
+        let age_above_18 = show_public_values[0] == Field::ONE;
+        println!("  ageAbove18: {}\n", age_above_18);
+    }
 
     // Measure file sizes
     info!("Measuring artifact sizes...");
     let prepare_proving_key_bytes =
         get_file_size(&path_config.key_path(PREPARE_PROVING_KEY).to_string_lossy());
-    let prepare_verifying_key_bytes =
-        get_file_size(&path_config.key_path(PREPARE_VERIFYING_KEY).to_string_lossy());
+    let prepare_verifying_key_bytes = get_file_size(
+        &path_config
+            .key_path(PREPARE_VERIFYING_KEY)
+            .to_string_lossy(),
+    );
     let show_proving_key_bytes =
         get_file_size(&path_config.key_path(SHOW_PROVING_KEY).to_string_lossy());
     let show_verifying_key_bytes =
         get_file_size(&path_config.key_path(SHOW_VERIFYING_KEY).to_string_lossy());
     let prepare_proof_bytes =
         get_file_size(&path_config.artifact_path(PREPARE_PROOF).to_string_lossy());
-    let show_proof_bytes =
-        get_file_size(&path_config.artifact_path(SHOW_PROOF).to_string_lossy());
+    let show_proof_bytes = get_file_size(&path_config.artifact_path(SHOW_PROOF).to_string_lossy());
     let prepare_witness_bytes =
         get_file_size(&path_config.artifact_path(PREPARE_WITNESS).to_string_lossy());
     let show_witness_bytes =
@@ -436,7 +444,7 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Verify => {
             info!("Verifying Prepare proof with ZK-Spartan");
-            verify_circuit(
+            let _public_values = verify_circuit(
                 path_config.artifact_path(PREPARE_PROOF),
                 path_config.key_path(PREPARE_VERIFYING_KEY),
             );
@@ -494,10 +502,15 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Verify => {
             info!("Verifying Show proof with ZK-Spartan");
-            verify_circuit(
+            let public_values = verify_circuit(
                 path_config.artifact_path(SHOW_PROOF),
                 path_config.key_path(SHOW_VERIFYING_KEY),
             );
+            // Show public IO: [ageAbove18, deviceKeyX, deviceKeyY]
+            if !public_values.is_empty() {
+                let age_above_18 = public_values[0] == Field::ONE;
+                println!("ageAbove18: {} (raw: {:?})", age_above_18, public_values[0]);
+            }
         }
         CircuitAction::Reblind => {
             info!("Reblind Spartan sumcheck + Hyrax PCS Show");
