@@ -250,6 +250,109 @@ pub fn reblind_with_loaded_data<C: SpartanCircuit<E>>(
     }
 }
 
+/// Prove a circuit and return results in memory (no file I/O).
+/// This is the building block for the WASM `precompute()` API.
+pub fn prove_circuit_in_memory<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
+    circuit: C,
+    pk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey,
+) -> Result<
+    (
+        R1CSSNARK<E>,
+        spartan2::r1cs::SplitR1CSInstance<E>,
+        spartan2::r1cs::R1CSWitness<E>,
+    ),
+    SpartanError,
+> {
+    let t0 = Instant::now();
+    let mut prep_snark = R1CSSNARK::<E>::prep_prove(&pk, circuit.clone(), false)?;
+    let prep_ms = t0.elapsed().as_millis();
+    info!("ZK-Spartan prep_prove (in-memory): {} ms", prep_ms);
+
+    let t0 = Instant::now();
+    let mut transcript = <E as Engine>::TE::new(b"R1CSSNARK");
+    transcript.absorb(b"vk", &pk.vk_digest);
+
+    let public_values = SpartanCircuit::<E>::public_values(&circuit).map_err(|e| {
+        SpartanError::SynthesisError {
+            reason: format!("Circuit does not provide public IO: {e}"),
+        }
+    })?;
+
+    transcript.absorb(b"public_values", &public_values.as_slice());
+
+    let (instance, witness) = SatisfyingAssignment::r1cs_instance_and_witness(
+        &mut prep_snark.ps,
+        &pk.S,
+        &pk.ck,
+        &circuit,
+        false,
+        &mut transcript,
+    )
+    .map_err(|e| SpartanError::SynthesisError {
+        reason: format!("Instance/witness generation failed: {e}"),
+    })?;
+
+    let proof = R1CSSNARK::<E>::prove_inner(&pk, &instance, &witness, &mut transcript)?;
+    let prove_ms = t0.elapsed().as_millis();
+
+    info!(
+        "ZK-Spartan prove (in-memory): prep={} ms, prove={} ms, total={} ms",
+        prep_ms,
+        prove_ms,
+        prep_ms + prove_ms
+    );
+
+    Ok((proof, instance, witness))
+}
+
+/// Reblind a proof with shared randomness and return results in memory (no file I/O).
+/// This is the building block for the WASM `present()` API.
+pub fn reblind_in_memory<C: SpartanCircuit<E>>(
+    circuit: C,
+    pk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey,
+    instance: spartan2::r1cs::SplitR1CSInstance<E>,
+    witness: spartan2::r1cs::R1CSWitness<E>,
+    randomness: &[<E as Engine>::Scalar],
+) -> Result<
+    (
+        R1CSSNARK<E>,
+        spartan2::r1cs::SplitR1CSInstance<E>,
+        spartan2::r1cs::R1CSWitness<E>,
+    ),
+    SpartanError,
+> {
+    assert_eq!(randomness.len(), instance.num_shared_rows());
+
+    let mut reblind_transcript = <E as Engine>::TE::new(b"R1CSSNARK");
+    reblind_transcript.absorb(b"vk", &pk.vk_digest);
+
+    let public_values = SpartanCircuit::<E>::public_values(&circuit).map_err(|e| {
+        SpartanError::SynthesisError {
+            reason: format!("Circuit does not provide public IO: {e}"),
+        }
+    })?;
+
+    reblind_transcript.absorb(b"public_values", &public_values.as_slice());
+
+    let (new_instance, new_witness) = SatisfyingAssignment::reblind_r1cs_instance_and_witness(
+        &randomness,
+        instance,
+        witness,
+        &pk.ck,
+        &mut reblind_transcript,
+    )
+    .map_err(|e| SpartanError::SynthesisError {
+        reason: format!("Reblind failed: {e}"),
+    })?;
+
+    let proof =
+        R1CSSNARK::<E>::prove_inner(&pk, &new_instance, &new_witness, &mut reblind_transcript)?;
+
+    info!("ZK-Spartan reblind (in-memory): complete");
+
+    Ok((proof, new_instance, new_witness))
+}
+
 /// Only run the verification part using ZK-Spartan.
 /// Returns the public values embedded in the proof.
 pub fn verify_circuit(proof_path: impl AsRef<Path>, vk_path: impl AsRef<Path>) -> Vec<Scalar> {

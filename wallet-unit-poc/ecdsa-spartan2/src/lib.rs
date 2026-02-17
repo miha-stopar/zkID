@@ -21,9 +21,9 @@ pub mod utils;
 pub use circuits::{prepare_circuit::PrepareCircuit, show_circuit::ShowCircuit};
 pub use paths::PathConfig;
 pub use prover::{
-    generate_prepare_witness, generate_shared_blinds, prove_circuit, prove_circuit_with_pk,
-    reblind, reblind_with_loaded_data, run_circuit, verify_circuit,
-    verify_circuit_with_loaded_data,
+    generate_prepare_witness, generate_shared_blinds, prove_circuit, prove_circuit_in_memory,
+    prove_circuit_with_pk, reblind, reblind_in_memory, reblind_with_loaded_data, run_circuit,
+    verify_circuit, verify_circuit_with_loaded_data,
 };
 pub use setup::{
     load_instance, load_proof, load_proving_key, load_shared_blinds, load_verifying_key,
