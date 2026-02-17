@@ -2,5 +2,6 @@ zkID is a team within Privacy Stewards of Ethereum (PSE) at the Ethereum Foundat
 
 Across the identity ecosystem, we draft technical standards, maintain open-source resources, and prototype infrastructure that aligns with evolving regulatory frameworks. By facilitating collaboration between researchers, developers, governments, and institutions, we bridge foundational cryptographic research with real-world deployment and impact.
 
-For zkID benchmarks, refer to this [repository](https://github.com/privacy-ethereum/csp-benchmarks) 
-For more information on the zkID team, visit [pse.dev](https://pse.dev/projects/zk-id)
+For zkID benchmarks, refer to this [repository](https://github.com/privacy-ethereum/csp-benchmarks). 
+For more information on the zkID team, visit [pse.dev](https://pse.dev/projects/zk-id).
+For more details on current tasks and priorities, see the [zkID roadmap](https://pse-team.notion.site/zkID-2026-Roadmap-2fdd57e8dd7e80f48a37c24e9fbe09d6).
