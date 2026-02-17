@@ -1,0 +1,58 @@
+{
+  "name": "openac-sdk",
+  "version": "0.1.0",
+  "description": "OpenAC SDK — Privacy-preserving identity verification using zero-knowledge proofs. Create and verify ZK proofs from JWT credentials.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "build:all": "npm run build:wasm && npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build:all"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.3.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/privacy-scaling-explorations/zkID"
+  },
+  "keywords": [
+    "zero-knowledge",
+    "zk-proof",
+    "identity",
+    "privacy",
+    "jwt",
+    "sd-jwt",
+    "verifiable-credentials",
+    "spartan",
+    "ecdsa",
+    "p256"
+  ]
+}

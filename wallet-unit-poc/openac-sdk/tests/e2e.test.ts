@@ -1,0 +1,526 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+import { p256 } from "@noble/curves/nist.js";
+import { sha256 } from "@noble/hashes/sha2";
+
+import {
+  NativeBackend,
+  WitnessCalculator,
+  Credential,
+  buildJwtCircuitInputs,
+  buildShowCircuitInputs,
+  signDeviceNonce,
+  base64urlToBigInt,
+  DEFAULT_JWT_PARAMS,
+  DEFAULT_SHOW_PARAMS,
+} from "../src/index.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ASSETS_DIR = join(__dirname, "..", "assets");
+
+// ---------------------------------------------------------------------------
+// Self-contained ES256 SD-JWT generator using only @noble/curves
+// ---------------------------------------------------------------------------
+
+/** Derive a P-256 public key point from a private key (scalar multiplication). */
+function derivePublicKey(privateKeyBytes: Uint8Array) {
+  let hex = "";
+  for (const b of privateKeyBytes) hex += b.toString(16).padStart(2, "0");
+  return p256.ProjectivePoint.BASE.multiply(BigInt("0x" + hex));
+}
+
+// Fixed issuer key pair (deterministic for tests)
+const ISSUER_PRIVATE_KEY_HEX =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const ISSUER_PRIVATE_KEY = hexToBytes(ISSUER_PRIVATE_KEY_HEX);
+const ISSUER_POINT = derivePublicKey(ISSUER_PRIVATE_KEY);
+const ISSUER_PUBLIC_KEY = {
+  kty: "EC" as const,
+  crv: "P-256" as const,
+  x: bytesToBase64url(bigintToBytes(ISSUER_POINT.x, 32)),
+  y: bytesToBase64url(bigintToBytes(ISSUER_POINT.y, 32)),
+};
+
+// Fixed device key pair (deterministic for tests)
+const DEVICE_PRIVATE_KEY_HEX =
+  "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+const DEVICE_PRIVATE_KEY = hexToBytes(DEVICE_PRIVATE_KEY_HEX);
+const DEVICE_POINT = derivePublicKey(DEVICE_PRIVATE_KEY);
+const DEVICE_PUBLIC_KEY = {
+  kty: "EC" as const,
+  crv: "P-256" as const,
+  x: bytesToBase64url(bigintToBytes(DEVICE_POINT.x, 32)),
+  y: bytesToBase64url(bigintToBytes(DEVICE_POINT.y, 32)),
+};
+
+const VERIFIER_NONCE = "test-nonce-12345";
+
+/** Encode a JavaScript object as a base64url string. */
+function jsonToBase64url(obj: unknown): string {
+  const json = JSON.stringify(obj);
+  return bytesToBase64url(new TextEncoder().encode(json));
+}
+
+/** Sign a JWT with ES256 (P-256 + SHA-256) using @noble/curves. */
+function signES256(signingInput: string, privateKey: Uint8Array): string {
+  const msgHash = sha256(signingInput);
+  const sig = p256.sign(msgHash, privateKey);
+  return bytesToBase64url(sig.toBytes("compact"));
+}
+
+/** Generate a base64url-encoded SD-JWT disclosure: base64url(JSON([salt, key, value])). */
+function makeDisclosure(salt: string, key: string, value: string): string {
+  const json = JSON.stringify([salt, key, value]);
+  return bytesToBase64url(new TextEncoder().encode(json));
+}
+
+/** SHA-256 hash of a disclosure string, returned as base64url. */
+function disclosureDigest(disclosure: string): string {
+  const hash = sha256(new TextEncoder().encode(disclosure));
+  return bytesToBase64url(hash);
+}
+
+interface TestJwtData {
+  jwt: string;
+  disclosures: string[];
+  claims: Array<{ salt: string; key: string; value: string }>;
+  issuerPublicKey: { kty: "EC"; crv: "P-256"; x: string; y: string };
+  devicePublicKey: { kty: "EC"; crv: "P-256"; x: string; y: string };
+  devicePrivateKeyHex: string;
+}
+
+/**
+ * Generate a self-contained SD-JWT with known claims for testing.
+ * Uses only @noble/curves — no external JWT library needed.
+ */
+function generateTestJwt(): TestJwtData {
+  // Salts must be long enough so that each base64url-encoded disclosure is >= 56 bytes.
+  // The circuit's ClaimHasher always processes claims as 2 SHA-256 blocks (maxClaimsLength=128).
+  // If a disclosure is < 56 bytes, its SHA-256 padding fits in 1 block, causing a hash mismatch.
+  const claimDefs = [
+    { salt: "aGVsbG9fd29ybGRfMTIzNDU2", key: "name", value: "Alice" },
+    {
+      salt: "Z29vZGJ5ZV93b3JsZF83ODkwMTI",
+      key: "roc_birthday",
+      value: "0890615",
+    },
+  ];
+
+  const disclosures = claimDefs.map((c) =>
+    makeDisclosure(c.salt, c.key, c.value),
+  );
+  const hashedClaims = disclosures.map((d) => disclosureDigest(d));
+
+  const header = {
+    alg: "ES256",
+    typ: "vc+sd-jwt",
+  };
+
+  const payload = {
+    sub: "did:example:subject",
+    iss: "did:example:issuer",
+    nbf: 1700000000,
+    exp: 1800000000,
+    cnf: { jwk: DEVICE_PUBLIC_KEY },
+    vc: {
+      "@context": ["https://www.w3.org/2018/credentials/v1"],
+      type: ["VerifiableCredential"],
+      credentialSubject: {
+        _sd: hashedClaims,
+        _sd_alg: "sha-256",
+      },
+    },
+    nonce: "fixed-test-nonce",
+  };
+
+  const b64Header = jsonToBase64url(header);
+  const b64Payload = jsonToBase64url(payload);
+  const signingInput = `${b64Header}.${b64Payload}`;
+  const b64Signature = signES256(signingInput, ISSUER_PRIVATE_KEY);
+  const jwt = `${signingInput}.${b64Signature}`;
+
+  return {
+    jwt,
+    disclosures,
+    claims: claimDefs,
+    issuerPublicKey: ISSUER_PUBLIC_KEY,
+    devicePublicKey: DEVICE_PUBLIC_KEY,
+    devicePrivateKeyHex: DEVICE_PRIVATE_KEY_HEX,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Encoding helpers (pure, no Node.js Buffer dependency)
+// ---------------------------------------------------------------------------
+
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bigintToBytes(value: bigint, byteLength: number): Uint8Array {
+  const hex = value.toString(16).padStart(byteLength * 2, "0");
+  const bytes = new Uint8Array(byteLength);
+  for (let i = 0; i < byteLength; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function bytesToBase64url(bytes: Uint8Array): string {
+  const B64 =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let result = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i]!;
+    const b = bytes[i + 1] ?? 0;
+    const c = bytes[i + 2] ?? 0;
+    const triplet = (a << 16) | (b << 8) | c;
+    result += B64[(triplet >> 18) & 0x3f];
+    result += B64[(triplet >> 12) & 0x3f];
+    result += i + 1 < bytes.length ? B64[(triplet >> 6) & 0x3f]! : "";
+    result += i + 2 < bytes.length ? B64[triplet & 0x3f]! : "";
+  }
+  return result.replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+describe("Credential Parsing via SDK", () => {
+  it("parses SD-JWT and extracts claims", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+
+    expect(credential.token).toBe(data.jwt);
+    expect(credential.claims.length).toBe(data.disclosures.length);
+
+    // Verify each claim was parsed correctly
+    for (let i = 0; i < data.claims.length; i++) {
+      expect(credential.claims[i]!.name).toBe(data.claims[i]!.key);
+      expect(credential.claims[i]!.value).toBe(data.claims[i]!.value);
+      expect(credential.claims[i]!.salt).toBe(data.claims[i]!.salt);
+    }
+
+    // Birthday claim detection
+    const birthdayIdx = credential.findBirthdayClaim();
+    expect(birthdayIdx).not.toBeNull();
+    expect(credential.claims[birthdayIdx!]!.name).toBe("roc_birthday");
+    expect(credential.claims[birthdayIdx!]!.value).toBe("0890615");
+  });
+
+  it("extracts device binding key from cnf.jwk", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+
+    const deviceKey = credential.deviceBindingKey;
+    expect(deviceKey).not.toBeNull();
+    expect(deviceKey!.kty).toBe("EC");
+    expect(deviceKey!.crv).toBe("P-256");
+    expect(deviceKey!.x).toBe(data.devicePublicKey.x);
+    expect(deviceKey!.y).toBe(data.devicePublicKey.y);
+  });
+
+  it("computes disclosure digests matching _sd array", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+
+    const sdDigests = credential.sdDigests;
+    const computedDigests = credential.disclosureHashes;
+
+    expect(sdDigests.length).toBe(computedDigests.length);
+    for (let i = 0; i < sdDigests.length; i++) {
+      expect(computedDigests).toContain(sdDigests[i]);
+    }
+  });
+});
+
+describe("Input Builders via SDK", () => {
+  it("buildShowCircuitInputs creates valid circuit inputs", () => {
+    // Derive the correct public key from the device private key
+    const deviceKey = DEVICE_PUBLIC_KEY;
+    const signature = signDeviceNonce(VERIFIER_NONCE, DEVICE_PRIVATE_KEY_HEX);
+
+    // Claim must be base64url-encoded (as produced by makeDisclosure)
+    const claim = makeDisclosure("salt123", "roc_birthday", "2000-01-15");
+
+    const inputs = buildShowCircuitInputs(
+      DEFAULT_SHOW_PARAMS,
+      VERIFIER_NONCE,
+      signature,
+      deviceKey,
+      claim,
+      { year: 2024, month: 6, day: 15 },
+    );
+
+    expect(inputs.deviceKeyX).toBeDefined();
+    expect(inputs.deviceKeyY).toBeDefined();
+    expect(inputs.sig_r).toBeDefined();
+    expect(inputs.sig_s_inverse).toBeDefined();
+    expect(inputs.messageHash).toBeDefined();
+    expect(inputs.claim.length).toBe(
+      Math.floor((DEFAULT_SHOW_PARAMS.maxClaimsLength * 3) / 4),
+    );
+    expect(inputs.currentYear).toBe(2024n);
+    expect(inputs.currentMonth).toBe(6n);
+    expect(inputs.currentDay).toBe(15n);
+
+    // Verify the device key coordinates match
+    expect(inputs.deviceKeyX).toBe(base64urlToBigInt(deviceKey.x));
+    expect(inputs.deviceKeyY).toBe(base64urlToBigInt(deviceKey.y));
+  });
+
+  it("buildJwtCircuitInputs creates valid circuit inputs from generated JWT", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+
+    const birthdayIdx = credential.findBirthdayClaim();
+    expect(birthdayIdx).not.toBeNull();
+
+    const decodeFlags = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 1 : 0,
+    );
+    const additionalMatches = credential.disclosureHashes;
+
+    const inputs = buildJwtCircuitInputs(
+      credential,
+      data.issuerPublicKey,
+      DEFAULT_JWT_PARAMS,
+      additionalMatches,
+      decodeFlags,
+      birthdayIdx!,
+    );
+
+    expect(inputs.sig_r).toBeDefined();
+    expect(inputs.sig_s_inverse).toBeDefined();
+    expect(inputs.pubKeyX).toBeDefined();
+    expect(inputs.pubKeyY).toBeDefined();
+    expect(inputs.message.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
+    expect(inputs.messageLength).toBeGreaterThan(0);
+    expect(inputs.periodIndex).toBeGreaterThan(0);
+    expect(inputs.matchesCount).toBe(additionalMatches.length + 2); // +2 for "x":" and "y":"
+    expect(inputs.ageClaimIndex).toBe(birthdayIdx! + 2); // offset by 2 for x/y pattern slots
+  });
+});
+
+describe("Show Circuit via SDK", () => {
+  let witnessCalculator: WitnessCalculator;
+
+  beforeAll(async () => {
+    witnessCalculator = new WitnessCalculator(ASSETS_DIR);
+    await witnessCalculator.init();
+  });
+
+  it("generates valid show witness from SDK-built inputs", async () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+    const birthdayIdx = credential.findBirthdayClaim()!;
+
+    // Get the birthday claim disclosure (base64url-encoded)
+    const birthdayClaim = data.disclosures[birthdayIdx]!;
+
+    // Sign device nonce via SDK
+    const signature = signDeviceNonce(VERIFIER_NONCE, data.devicePrivateKeyHex);
+
+    // Build Show circuit inputs via SDK
+    const showInputs = buildShowCircuitInputs(
+      DEFAULT_SHOW_PARAMS,
+      VERIFIER_NONCE,
+      signature,
+      data.devicePublicKey,
+      birthdayClaim,
+      { year: 2025, month: 1, day: 1 },
+    );
+
+    // Calculate witness via SDK WitnessCalculator
+    const witness = await witnessCalculator.calculateShowWitness(showInputs);
+
+    // Witness sanity checks
+    expect(witness[0]).toBe(1n); // valid constraint system
+    // ageAbove18: roc_birthday "0890615" = ROC year 089 = Gregorian 2000 => age 25 in 2025
+    expect(witness[1]).toBe(1n); // ageAbove18 = 1 (born 2000, age 25)
+    expect(witness[2]).toBe(base64urlToBigInt(data.devicePublicKey.x)); // deviceKeyX
+    expect(witness[3]).toBe(base64urlToBigInt(data.devicePublicKey.y)); // deviceKeyY
+  }, 30_000);
+
+  it("proves and verifies via NativeBackend", async () => {
+    const backend = new NativeBackend();
+    if (!backend.keysExist) return;
+
+    await backend.proveShow();
+    const result = await backend.verifyShow();
+
+    expect(result.valid).toBe(true);
+    expect(result.output).toContain("Verification successful");
+  }, 120_000);
+});
+
+describe("JWT (Prepare) Circuit via SDK", () => {
+  let witnessCalculator: WitnessCalculator;
+
+  beforeAll(async () => {
+    witnessCalculator = new WitnessCalculator(ASSETS_DIR);
+    await witnessCalculator.init();
+  });
+
+  it("generates valid JWT witness from SDK-built inputs", async () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+
+    const birthdayIdx = credential.findBirthdayClaim()!;
+    expect(birthdayIdx).not.toBeNull();
+
+    const decodeFlags = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 1 : 0,
+    );
+    const additionalMatches = credential.disclosureHashes;
+
+    // Build JWT circuit inputs via SDK
+    const jwtInputs = buildJwtCircuitInputs(
+      credential,
+      data.issuerPublicKey,
+      DEFAULT_JWT_PARAMS,
+      additionalMatches,
+      decodeFlags,
+      birthdayIdx,
+    );
+
+    // Calculate witness via SDK WitnessCalculator
+    const witness = await witnessCalculator.calculateJwtWitness(jwtInputs);
+
+    // Witness sanity checks
+    expect(witness[0]).toBe(1n); // valid constraint system
+    expect(witness.length).toBeGreaterThan(98);
+
+    // Decode ageClaim from w[1..97] — these are ASCII bytes of the decoded birthday claim
+    const ageClaimBytes = witness.slice(1, 97).map((b) => Number(b));
+    const endIdx = ageClaimBytes.findIndex(
+      (b, i) => b === 0 && ageClaimBytes.slice(i).every((x) => x === 0),
+    );
+    const ageClaimStr = String.fromCharCode(
+      ...ageClaimBytes.slice(0, endIdx === -1 ? ageClaimBytes.length : endIdx),
+    );
+    expect(ageClaimStr).toContain("roc_birthday");
+
+    // KeyBindingX and KeyBindingY should be the device public key
+    expect(witness[97]).toBe(base64urlToBigInt(data.devicePublicKey.x));
+    expect(witness[98]).toBe(base64urlToBigInt(data.devicePublicKey.y));
+  }, 120_000);
+
+  it("proves and verifies via NativeBackend", async () => {
+    const backend = new NativeBackend();
+    if (!backend.keysExist) return;
+
+    await backend.provePrepare();
+    const result = await backend.verifyPrepare();
+
+    expect(result.valid).toBe(true);
+    expect(result.output).toContain("Verification successful");
+  }, 360_000);
+});
+
+describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
+  let backend: NativeBackend;
+  let witnessCalculator: WitnessCalculator;
+
+  beforeAll(async () => {
+    backend = new NativeBackend();
+    witnessCalculator = new WitnessCalculator(ASSETS_DIR);
+    await witnessCalculator.init();
+  });
+
+  it("runs complete pipeline using SDK from JWT generation to verification", async () => {
+    if (!backend.keysExist) return;
+
+    // Step 1: Generate test JWT using self-contained helper
+    const data = generateTestJwt();
+
+    // Step 2: Parse credential via SDK
+    const credential = Credential.parse(data.jwt, data.disclosures);
+    const birthdayIdx = credential.findBirthdayClaim()!;
+    expect(birthdayIdx).not.toBeNull();
+
+    const decodeFlags = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 1 : 0,
+    );
+    const additionalMatches = credential.disclosureHashes;
+
+    // Step 3: Build JWT circuit inputs via SDK
+    const jwtInputs = buildJwtCircuitInputs(
+      credential,
+      data.issuerPublicKey,
+      DEFAULT_JWT_PARAMS,
+      additionalMatches,
+      decodeFlags,
+      birthdayIdx,
+    );
+
+    // Step 4: Calculate JWT witness and prove Prepare circuit
+    const jwtWitness = await witnessCalculator.calculateJwtWitness(jwtInputs);
+    await backend.generateSharedBlinds();
+    await backend.provePrepare();
+    await backend.reblindPrepare();
+
+    // Step 5: Build Show circuit inputs via SDK
+    const birthdayClaim = data.disclosures[birthdayIdx]!;
+    const deviceSignature = signDeviceNonce(
+      VERIFIER_NONCE,
+      data.devicePrivateKeyHex,
+    );
+    const showInputs = buildShowCircuitInputs(
+      DEFAULT_SHOW_PARAMS,
+      VERIFIER_NONCE,
+      deviceSignature,
+      data.devicePublicKey,
+      birthdayClaim,
+      { year: 2025, month: 1, day: 1 },
+    );
+
+    // Step 6: Calculate Show witness and prove Show circuit
+    const showWitness =
+      await witnessCalculator.calculateShowWitness(showInputs);
+    await backend.proveShow();
+    await backend.reblindShow();
+
+    // Step 7: Verify both proofs via SDK
+    const prepResult = await backend.verifyPrepare();
+    const showResult = await backend.verifyShow();
+
+    expect(prepResult.valid).toBe(true);
+    expect(prepResult.output).toContain("Verification successful");
+    expect(showResult.valid).toBe(true);
+    expect(showResult.output).toContain("Verification successful");
+
+    // Step 8: Cross-circuit consistency — device key from JWT must match Show
+    expect(jwtWitness[97]).toBe(showWitness[2]); // KeyBindingX
+    expect(jwtWitness[98]).toBe(showWitness[3]); // KeyBindingY
+
+    // Step 9: Age verification result
+    expect(showWitness[1]).toBe(1n); // ageAbove18 = true
+  }, 900_000);
+
+  it("can load keys and proofs via SDK", async () => {
+    if (!backend.keysExist) return;
+    if (!backend.proofsExist) return;
+
+    const keys = await backend.loadKeys();
+    expect(keys.prepareProvingKey.length).toBeGreaterThan(0);
+    expect(keys.prepareVerifyingKey.length).toBeGreaterThan(0);
+    expect(keys.showProvingKey.length).toBeGreaterThan(0);
+    expect(keys.showVerifyingKey.length).toBeGreaterThan(0);
+
+    const verifyingKeys = keys.verifyingKeys();
+    expect(verifyingKeys.prepareVerifyingKey).toBe(keys.prepareVerifyingKey);
+    expect(verifyingKeys.showVerifyingKey).toBe(keys.showVerifyingKey);
+
+    const proofs = await backend.loadProofs();
+    expect(proofs.prepareProof.length).toBeGreaterThan(0);
+    expect(proofs.showProof.length).toBeGreaterThan(0);
+  }, 30_000);
+});
