@@ -1,7 +1,5 @@
 use crate::{
-    paths::PathConfig,
-    prover::generate_prepare_witness,
-    utils::{calculate_jwt_output_indices, MAX_CLAIMS_LENGTH, MAX_MATCHES},
+    paths::PathConfig, prover::generate_prepare_witness, utils::calculate_jwt_output_indices,
     Scalar, E,
 };
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
@@ -15,6 +13,51 @@ use std::{
 };
 
 witnesscalc_adapter::witness!(jwt);
+
+#[cfg(has_circuit_1k)]
+witnesscalc_adapter::witness!(jwt_1k);
+
+#[cfg(has_circuit_2k)]
+witnesscalc_adapter::witness!(jwt_2k);
+
+#[cfg(has_circuit_4k)]
+witnesscalc_adapter::witness!(jwt_4k);
+
+#[cfg(has_circuit_8k)]
+witnesscalc_adapter::witness!(jwt_8k);
+
+pub(crate) fn call_jwt_witness(
+    circuit_name: &str,
+    inputs_json: &str,
+) -> Result<Vec<u8>, SynthesisError> {
+    let result = match circuit_name {
+        "jwt" => jwt_witness(inputs_json),
+
+        #[cfg(has_circuit_1k)]
+        "jwt_1k" => jwt_1k_witness(inputs_json),
+
+        #[cfg(has_circuit_2k)]
+        "jwt_2k" => jwt_2k_witness(inputs_json),
+
+        #[cfg(has_circuit_4k)]
+        "jwt_4k" => jwt_4k_witness(inputs_json),
+
+        #[cfg(has_circuit_8k)]
+        "jwt_8k" => jwt_8k_witness(inputs_json),
+
+        name => {
+            eprintln!(
+                "Circuit '{}' is not compiled into this binary.\n\
+                 Run `yarn compile:jwt:{} && cargo build --release` first.",
+                name,
+                name.strip_prefix("jwt_").unwrap_or(name)
+            );
+            return Err(SynthesisError::Unsatisfiable);
+        }
+    };
+
+    result.map_err(|_| SynthesisError::Unsatisfiable)
+}
 
 /// PrepareCircuit wraps the JWT verification circuit.
 #[derive(Debug, Clone)]
@@ -99,14 +142,11 @@ impl SpartanCircuit<E> for PrepareCircuit {
     ) -> Result<(), SynthesisError> {
         let r1cs_path = self.r1cs_path();
 
-        // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
-        // During setup, we only need constraint structure instead of actual witness values
         let cs_type = type_name::<CS>();
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
             let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
-            // Pass None for witness during setup
             synthesize(cs, r1cs, None)?;
             return Ok(());
         }
@@ -119,10 +159,11 @@ impl SpartanCircuit<E> for PrepareCircuit {
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        // Circom public IO: ageClaim[0..95] (96 outputs), KeyBindingX, KeyBindingY
-        // Witness indices 1..=98
-        let layout = calculate_jwt_output_indices(MAX_MATCHES, MAX_CLAIMS_LENGTH);
-        let num_public = layout.age_claim_len + 2; // 96 + 2 = 98
+        let layout = calculate_jwt_output_indices(
+            self.path_config.circuit_size.max_matches(),
+            self.path_config.circuit_size.max_claims_length(),
+        );
+        let num_public = layout.age_claim_len + 2;
 
         let witness = self.get_or_generate_witness().ok();
 
@@ -137,8 +178,10 @@ impl SpartanCircuit<E> for PrepareCircuit {
         &self,
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-        // Calculate witness layout
-        let layout = calculate_jwt_output_indices(MAX_MATCHES, MAX_CLAIMS_LENGTH);
+        let layout = calculate_jwt_output_indices(
+            self.path_config.circuit_size.max_matches(),
+            self.path_config.circuit_size.max_claims_length(),
+        );
 
         // Only attempt witness generation if input path is set (skips during setup)
         let witness = self

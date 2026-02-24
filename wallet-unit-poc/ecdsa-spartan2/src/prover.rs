@@ -1,7 +1,7 @@
 use std::{fs::File, path::Path, time::Instant};
 
 use crate::{
-    circuits::prepare_circuit::jwt_witness,
+    circuits::prepare_circuit::call_jwt_witness,
     paths::PathConfig,
     setup::{
         load_instance, load_proof, load_proving_key, load_shared_blinds, load_verifying_key,
@@ -272,11 +272,10 @@ pub fn prove_circuit_in_memory<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     let mut transcript = <E as Engine>::TE::new(b"R1CSSNARK");
     transcript.absorb(b"vk", &pk.vk_digest);
 
-    let public_values = SpartanCircuit::<E>::public_values(&circuit).map_err(|e| {
-        SpartanError::SynthesisError {
+    let public_values =
+        SpartanCircuit::<E>::public_values(&circuit).map_err(|e| SpartanError::SynthesisError {
             reason: format!("Circuit does not provide public IO: {e}"),
-        }
-    })?;
+        })?;
 
     transcript.absorb(b"public_values", &public_values.as_slice());
 
@@ -326,11 +325,10 @@ pub fn reblind_in_memory<C: SpartanCircuit<E>>(
     let mut reblind_transcript = <E as Engine>::TE::new(b"R1CSSNARK");
     reblind_transcript.absorb(b"vk", &pk.vk_digest);
 
-    let public_values = SpartanCircuit::<E>::public_values(&circuit).map_err(|e| {
-        SpartanError::SynthesisError {
+    let public_values =
+        SpartanCircuit::<E>::public_values(&circuit).map_err(|e| SpartanError::SynthesisError {
             reason: format!("Circuit does not provide public IO: {e}"),
-        }
-    })?;
+        })?;
 
     reblind_transcript.absorb(b"public_values", &public_values.as_slice());
 
@@ -405,10 +403,15 @@ pub fn generate_prepare_witness(
     info!("Generating witness using witnesscalc...");
     let t0 = Instant::now();
 
-    let inputs_json = hashmap_to_json_string(&inputs)?;
+    let inputs_json = hashmap_to_json_string(
+        &inputs,
+        config.circuit_size.max_matches(),
+        config.circuit_size.max_substring_length(),
+        config.circuit_size.max_claims_length(),
+    )?;
 
     // Generate raw witness bytes
-    let witness_bytes = jwt_witness(&inputs_json).map_err(|_| SynthesisError::Unsatisfiable)?;
+    let witness_bytes = call_jwt_witness(config.circuit_size.circuit_name(), &inputs_json)?;
 
     info!("witnesscalc time: {} ms", t0.elapsed().as_millis());
 

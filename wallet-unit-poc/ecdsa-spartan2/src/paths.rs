@@ -1,17 +1,21 @@
 //! Path config for cross-platform compatibility.
 
+use crate::circuit_size::CircuitSize;
 use std::path::{Path, PathBuf};
 
 /// Path config for all file operations.
 ///
 /// This struct replaces the previous pattern of changing the global working directory,
 /// providing explicit, thread-safe path resolution.
+
 #[derive(Clone, Debug)]
 pub struct PathConfig {
     /// Base directory for all file operations (Documents dir on mobile, cwd in dev)
     pub base_dir: PathBuf,
     /// Whether running in mobile environment (affects path resolution patterns)
     pub is_mobile: bool,
+    /// JWT circuit size variant.  Ignored when `is_mobile` is true.
+    pub circuit_size: CircuitSize,
 }
 
 impl Default for PathConfig {
@@ -26,6 +30,7 @@ impl PathConfig {
         Self {
             base_dir: base_dir.into(),
             is_mobile,
+            circuit_size: CircuitSize::default(),
         }
     }
 
@@ -36,80 +41,103 @@ impl PathConfig {
     /// - `{documents}/show_input.json`
     /// - `{documents}/keys/*.key`
     /// - `{documents}/circom/build/jwt/jwt_js/jwt.r1cs`
+
     pub fn mobile(documents_path: impl Into<PathBuf>) -> Self {
         Self {
             base_dir: documents_path.into(),
             is_mobile: true,
+            circuit_size: CircuitSize::default(),
         }
     }
 
     /// Create config for development environment.
     ///
     /// Development uses nested paths relative to the current working directory:
-    /// - `../circom/inputs/jwt/default.json`
-    /// - `../circom/inputs/show/default.json`
-    /// - `keys/*.key`
-    /// - `../circom/build/jwt/jwt_js/jwt.r1cs`
+    /// - `../circom/inputs/jwt/1k/default.json`
+    /// - `../circom/inputs/show/1k/default.json`
+    /// - `keys/1k_*.key`
+    /// - `../circom/build/jwt_1k/jwt_1k_js/jwt_1k.r1cs`
     pub fn development() -> Self {
         Self {
             base_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             is_mobile: false,
+            circuit_size: CircuitSize::default(),
+        }
+    }
+
+    /// Create config for development environment with an explicit circuit size.
+    pub fn development_with_size(circuit_size: CircuitSize) -> Self {
+        Self {
+            base_dir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            is_mobile: false,
+            circuit_size,
         }
     }
 
     /// Resolve the input JSON path for a circuit.
-    ///
-    /// # Arguments
-    /// * `circuit` - Circuit name: "jwt" for Prepare circuit, "show" for Show circuit
-    ///
-    /// # Returns
-    /// Full path to the input JSON file.
     pub fn input_json(&self, circuit: &str) -> PathBuf {
         if self.is_mobile {
-            // Mobile: flat structure in documents directory
             self.base_dir.join(format!("{}_input.json", circuit))
         } else {
-            // Development: nested structure
-            self.base_dir
-                .join(format!("../circom/inputs/{}/default.json", circuit))
+            self.base_dir.join(format!(
+                "../circom/inputs/{}/{}/default.json",
+                circuit,
+                self.circuit_size.as_str()
+            ))
         }
     }
 
     /// Resolve the R1CS file path for a circuit.
     ///
-    /// # Arguments
-    /// * `circuit` - Circuit name: "jwt" or "show"
-    ///
-    /// # Returns
-    /// Full path to the R1CS file.
+    /// For `"jwt"` the size-specific circuit name is used (e.g. `jwt_1k`).
+    /// For `"show"` (and any other circuit) the name is used verbatim.
+    /// Mobile paths are unchanged.
     pub fn r1cs_path(&self, circuit: &str) -> PathBuf {
-        self.base_dir
-            .join("../circom/build")
-            .join(circuit)
-            .join(format!("{}_js", circuit))
-            .join(format!("{}.r1cs", circuit))
+        if self.is_mobile {
+            self.base_dir
+                .join("../circom/build")
+                .join(circuit)
+                .join(format!("{}_js", circuit))
+                .join(format!("{}.r1cs", circuit))
+        } else {
+            let name = if circuit == "jwt" {
+                self.circuit_size.circuit_name()
+            } else {
+                circuit
+            };
+            self.base_dir
+                .join("../circom/build")
+                .join(name)
+                .join(format!("{}_js", name))
+                .join(format!("{}.r1cs", name))
+        }
     }
 
     /// Resolve a key file path (proving/verifying keys).
     ///
-    /// # Arguments
-    /// * `name` - Key filename (e.g., "prepare_proving.key")
-    ///
-    /// # Returns
-    /// Full path to the key file.
+    /// On mobile the name is used verbatim.
+    /// In development the size label is prepended: `keys/1k_prepare_proving.key`.
     pub fn key_path(&self, name: &str) -> PathBuf {
-        self.base_dir.join("keys").join(name)
+        if self.is_mobile {
+            self.base_dir.join("keys").join(name)
+        } else {
+            self.base_dir
+                .join("keys")
+                .join(format!("{}_{}", self.circuit_size.as_str(), name))
+        }
     }
 
     /// Resolve an artifact file path (proofs, witnesses, instances).
     ///
-    /// # Arguments
-    /// * `name` - Artifact filename (e.g., "prepare_proof.bin")
-    ///
-    /// # Returns
-    /// Full path to the artifact file.
+    /// Same size-prefixing rules as `key_path`.
     pub fn artifact_path(&self, name: &str) -> PathBuf {
-        self.base_dir.join("keys").join(name)
+        if self.is_mobile {
+            self.base_dir.join("keys").join(name)
+        } else {
+            self.base_dir
+                .join("keys")
+                .join(format!("{}_{}", self.circuit_size.as_str(), name))
+        }
     }
 
     /// Resolve the shared blinds file path.
@@ -168,16 +196,50 @@ mod tests {
     }
 
     #[test]
-    fn test_development_config() {
+    fn test_development_config_default_size() {
         let config = PathConfig::new("/project", false);
 
         assert_eq!(
             config.input_json("jwt"),
-            PathBuf::from("/project/../circom/inputs/jwt/default.json")
+            PathBuf::from("/project/../circom/inputs/jwt/1k/default.json")
         );
         assert_eq!(
             config.input_json("show"),
-            PathBuf::from("/project/../circom/inputs/show/default.json")
+            PathBuf::from("/project/../circom/inputs/show/1k/default.json")
+        );
+        assert_eq!(
+            config.r1cs_path("jwt"),
+            PathBuf::from("/project/../circom/build/jwt_1k/jwt_1k_js/jwt_1k.r1cs")
+        );
+        assert_eq!(
+            config.r1cs_path("show"),
+            PathBuf::from("/project/../circom/build/show/show_js/show.r1cs")
+        );
+        assert_eq!(
+            config.key_path("prepare_proving.key"),
+            PathBuf::from("/project/keys/1k_prepare_proving.key")
+        );
+    }
+
+    #[test]
+    fn test_development_config_explicit_size() {
+        let config = PathConfig {
+            base_dir: PathBuf::from("/project"),
+            is_mobile: false,
+            circuit_size: CircuitSize::Kb4,
+        };
+
+        assert_eq!(
+            config.input_json("jwt"),
+            PathBuf::from("/project/../circom/inputs/jwt/4k/default.json")
+        );
+        assert_eq!(
+            config.r1cs_path("jwt"),
+            PathBuf::from("/project/../circom/build/jwt_4k/jwt_4k_js/jwt_4k.r1cs")
+        );
+        assert_eq!(
+            config.key_path("prepare_proving.key"),
+            PathBuf::from("/project/keys/4k_prepare_proving.key")
         );
     }
 

@@ -87,7 +87,12 @@ impl ShowCircuit {
         info!("Generating witness using witnesscalc...");
         let t0 = Instant::now();
 
-        let inputs_json = hashmap_to_json_string(&inputs)?;
+        let inputs_json = hashmap_to_json_string(
+            &inputs,
+            self.path_config.circuit_size.max_matches(),
+            self.path_config.circuit_size.max_substring_length(),
+            self.path_config.circuit_size.max_claims_length(),
+        )?;
         let witness_bytes =
             show_witness(&inputs_json).map_err(|_| SynthesisError::Unsatisfiable)?;
 
@@ -149,7 +154,8 @@ impl SpartanCircuit<E> for ShowCircuit {
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
         // Calculate witness layout (verified from show.sym)
-        let layout = calculate_show_witness_indices(MAX_CLAIMS_LENGTH);
+        let layout =
+            calculate_show_witness_indices(self.path_config.circuit_size.max_claims_length());
 
         // Try to get witness; use zeros if unavailable (setup phase)
         // Only attempt witness generation if input path is set (skips during setup)

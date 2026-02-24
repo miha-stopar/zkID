@@ -4,6 +4,26 @@
     "template": "JWT",
     "params": [1920, 1900, 4, 50, 128]
   },
+  "jwt_1k": {
+    "file": "jwt",
+    "template": "JWT",
+    "params": [1280, 960, 4, 50, 128]
+  },
+  "jwt_2k": {
+    "file": "jwt",
+    "template": "JWT",
+    "params": [2048, 2000, 4, 50, 128]
+  },
+  "jwt_4k": {
+    "file": "jwt",
+    "template": "JWT",
+    "params": [4096, 4000, 4, 50, 128]
+  },
+  "jwt_8k": {
+    "file": "jwt",
+    "template": "JWT",
+    "params": [8192, 8000, 4, 50, 128]
+  },
   "show": {
     "file": "show",
     "template": "Show",

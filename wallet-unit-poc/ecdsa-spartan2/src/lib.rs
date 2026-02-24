@@ -11,6 +11,7 @@ use spartan2::{provider::T256HyraxEngine, traits::Engine};
 pub type E = T256HyraxEngine;
 pub type Scalar = <E as Engine>::Scalar;
 
+pub mod circuit_size;
 pub mod circuits;
 pub mod paths;
 pub mod prover;
@@ -18,6 +19,7 @@ pub mod setup;
 pub mod utils;
 
 // Re-export commonly used types and functions
+pub use circuit_size::CircuitSize;
 pub use circuits::{prepare_circuit::PrepareCircuit, show_circuit::ShowCircuit};
 pub use paths::PathConfig;
 pub use prover::{

@@ -10,6 +10,23 @@ fn main() {
         .join("circom/build/cpp");
     let circuits_path = circuits_dir.to_str().unwrap();
 
+    // Emit cfg flags for each JWT circuit size variant that has been compiled.
+    // The witness!() macro in prepare_circuit.rs uses these flags to conditionally
+    // include the witness-generation function for each compiled size.
+    for size in ["1k", "2k", "4k", "8k"] {
+        // Declare the cfg key so rustc doesn't warn about unknown cfg names.
+        println!("cargo::rustc-check-cfg=cfg(has_circuit_{})", size);
+
+        let cpp_file = circuits_dir.join(format!("jwt_{}.cpp", size));
+        if cpp_file.exists() {
+            println!("cargo:rustc-cfg=has_circuit_{}", size);
+            println!(
+                "cargo:warning=Found compiled circuit: jwt_{}.cpp — enabling size '{}' support",
+                size, size
+            );
+        }
+    }
+
     // Check for pre-built witnesscalc cache from build_pod.sh
     if let Ok(witnesscalc_cache) = std::env::var("WITNESSCALC_PREBUILD_CACHE") {
         let out_dir = std::env::var("OUT_DIR").expect("OUT_DIR not set");
