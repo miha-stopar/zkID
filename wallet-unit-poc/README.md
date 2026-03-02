@@ -110,6 +110,10 @@ cd ecdsa-spartan2
 cargo run --release -- benchmark
 ```
 
+### RSA Verifier Circuits (Reference)
+
+For RS256 (RSA-based) JWT verification, standalone RSA-2048 and RSA-4096 verifier circuits are available as a PoC on the [`feat/rsa-verifier-circuit`](https://github.com/moven0831/zkID/tree/feat/rsa-verifier-circuit) branch. See [RSA_REFERENCE.md](./RSA_REFERENCE.md) for circuit specification, build commands, and benchmarks.
+
 ### Mobile Benchmarks
 
 For the reproduction of mobile benchmarks, please check the [OpenAC mobile app directory](/wallet-unit-poc/mobile/)
