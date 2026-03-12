@@ -1,18 +1,28 @@
-use std::{fs::File, path::Path, time::Instant};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs::File, path::Path};
 
+// Path is still needed for function signatures used by non-wasm code
+#[cfg(target_arch = "wasm32")]
+use std::path::Path;
+
+#[cfg(feature = "native-witness")]
+use crate::circuits::prepare_circuit::call_jwt_witness;
+use crate::utils::parse_witness;
+use crate::{paths::PathConfig, Scalar, E};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::{
-    circuits::prepare_circuit::call_jwt_witness,
-    paths::PathConfig,
     setup::{
         load_instance, load_proof, load_proving_key, load_shared_blinds, load_verifying_key,
         load_witness, save_instance, save_proof, save_shared_blinds, save_witness,
     },
-    utils::{hashmap_to_json_string, parse_jwt_inputs, parse_witness},
-    Scalar, E,
+    utils::{hashmap_to_json_string, parse_jwt_inputs},
 };
 
 use bellpepper_core::SynthesisError;
 use ff::{derive::rand_core::OsRng, Field};
+#[cfg(not(target_arch = "wasm32"))]
 use serde_json::Value;
 use spartan2::{
     bellpepper::{solver::SatisfyingAssignment, zk_r1cs::SpartanWitness},
@@ -26,6 +36,7 @@ use spartan2::{
 use tracing::info;
 
 /// Run circuit using ZK-Spartan (setup, prepare, prove, verify)
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) {
     // SETUP using ZK-Spartan
     let t0 = Instant::now();
@@ -62,6 +73,7 @@ pub fn run_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(circuit: C) {
     info!("comm_W_shared: {:?}", proof.comm_W_shared());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn generate_shared_blinds<E: Engine>(shared_blinds_path: impl AsRef<Path>, n: usize) {
     let blinds: Vec<_> = (0..n).map(|_| E::Scalar::random(OsRng)).collect();
     if let Err(e) = save_shared_blinds::<E>(shared_blinds_path, &blinds) {
@@ -71,6 +83,7 @@ pub fn generate_shared_blinds<E: Engine>(shared_blinds_path: impl AsRef<Path>, n
 }
 
 /// Only run the proving part of the circuit using ZK-Spartan (prep_prove, prove)
+#[cfg(not(target_arch = "wasm32"))]
 pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     circuit: C,
     pk_path: impl AsRef<Path>,
@@ -89,6 +102,7 @@ pub fn prove_circuit<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
 
 /// Only run the proving part of the circuit using ZK-Spartan with a pre-loaded proving key
 /// This is useful for benchmarking to exclude file I/O from timing measurements
+#[cfg(not(target_arch = "wasm32"))]
 pub fn prove_circuit_with_pk<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     circuit: C,
     pk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey,
@@ -157,8 +171,8 @@ pub fn prove_circuit_with_pk<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     }
 }
 
-pub fn reblind<C: SpartanCircuit<E>>(
-    circuit: C,
+#[cfg(not(target_arch = "wasm32"))]
+pub fn reblind(
     pk_path: impl AsRef<Path>,
     instance_path: impl AsRef<Path>,
     witness_path: impl AsRef<Path>,
@@ -172,7 +186,6 @@ pub fn reblind<C: SpartanCircuit<E>>(
         load_shared_blinds::<E>(&shared_blinds_path).expect("load shared_blinds failed");
 
     reblind_with_loaded_data(
-        circuit,
         &pk,
         instance,
         witness,
@@ -183,9 +196,12 @@ pub fn reblind<C: SpartanCircuit<E>>(
     );
 }
 
-/// Reblind with pre-loaded data - useful for benchmarking to exclude file I/O
-pub fn reblind_with_loaded_data<C: SpartanCircuit<E>>(
-    circuit: C,
+/// Reblind with pre-loaded data - useful for benchmarking to exclude file I/O.
+///
+/// Uses the public values stored in the instance (from the original proving step)
+/// rather than re-deriving them from the circuit.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn reblind_with_loaded_data(
     pk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey,
     instance: spartan2::r1cs::SplitR1CSInstance<E>,
     witness: spartan2::r1cs::R1CSWitness<E>,
@@ -200,14 +216,11 @@ pub fn reblind_with_loaded_data<C: SpartanCircuit<E>>(
     let mut reblind_transcript = <E as Engine>::TE::new(b"R1CSSNARK");
     reblind_transcript.absorb(b"vk", &pk.vk_digest);
 
-    let public_values = SpartanCircuit::<E>::public_values(&circuit)
-        .map_err(|e| SpartanError::SynthesisError {
-            reason: format!("Circuit does not provide public IO: {e}"),
-        })
-        .unwrap();
+    // Use the public values stored in the instance from the original proving step.
+    let public_values = instance.get_public_values();
 
     // absorb the public values into the reblind_transcript
-    reblind_transcript.absorb(b"public_values", &public_values.as_slice());
+    reblind_transcript.absorb(b"public_values", &public_values);
 
     let (new_instance, new_witness) = SatisfyingAssignment::reblind_r1cs_instance_and_witness(
         &randomness,
@@ -263,12 +276,8 @@ pub fn prove_circuit_in_memory<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     ),
     SpartanError,
 > {
-    let t0 = Instant::now();
     let mut prep_snark = R1CSSNARK::<E>::prep_prove(&pk, circuit.clone(), false)?;
-    let prep_ms = t0.elapsed().as_millis();
-    info!("ZK-Spartan prep_prove (in-memory): {} ms", prep_ms);
 
-    let t0 = Instant::now();
     let mut transcript = <E as Engine>::TE::new(b"R1CSSNARK");
     transcript.absorb(b"vk", &pk.vk_digest);
 
@@ -292,22 +301,17 @@ pub fn prove_circuit_in_memory<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     })?;
 
     let proof = R1CSSNARK::<E>::prove_inner(&pk, &instance, &witness, &mut transcript)?;
-    let prove_ms = t0.elapsed().as_millis();
-
-    info!(
-        "ZK-Spartan prove (in-memory): prep={} ms, prove={} ms, total={} ms",
-        prep_ms,
-        prove_ms,
-        prep_ms + prove_ms
-    );
 
     Ok((proof, instance, witness))
 }
 
 /// Reblind a proof with shared randomness and return results in memory (no file I/O).
 /// This is the building block for the WASM `present()` API.
-pub fn reblind_in_memory<C: SpartanCircuit<E>>(
-    circuit: C,
+///
+/// Uses the public values stored in the instance (from the original proving step)
+/// rather than re-deriving them from the circuit. This is critical for WASM builds
+/// where the circuit's `public_values()` may return zeros due to missing witness data.
+pub fn reblind_in_memory(
     pk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey,
     instance: spartan2::r1cs::SplitR1CSInstance<E>,
     witness: spartan2::r1cs::R1CSWitness<E>,
@@ -325,12 +329,12 @@ pub fn reblind_in_memory<C: SpartanCircuit<E>>(
     let mut reblind_transcript = <E as Engine>::TE::new(b"R1CSSNARK");
     reblind_transcript.absorb(b"vk", &pk.vk_digest);
 
-    let public_values =
-        SpartanCircuit::<E>::public_values(&circuit).map_err(|e| SpartanError::SynthesisError {
-            reason: format!("Circuit does not provide public IO: {e}"),
-        })?;
+    // Use the public values stored in the instance from the original proving step.
+    // This ensures transcript consistency with the verifier, which also reads
+    // public values from the proof's instance (not from a circuit).
+    let public_values = instance.get_public_values();
 
-    reblind_transcript.absorb(b"public_values", &public_values.as_slice());
+    reblind_transcript.absorb(b"public_values", &public_values);
 
     let (new_instance, new_witness) = SatisfyingAssignment::reblind_r1cs_instance_and_witness(
         &randomness,
@@ -346,13 +350,12 @@ pub fn reblind_in_memory<C: SpartanCircuit<E>>(
     let proof =
         R1CSSNARK::<E>::prove_inner(&pk, &new_instance, &new_witness, &mut reblind_transcript)?;
 
-    info!("ZK-Spartan reblind (in-memory): complete");
-
     Ok((proof, new_instance, new_witness))
 }
 
 /// Only run the verification part using ZK-Spartan.
 /// Returns the public values embedded in the proof.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify_circuit(proof_path: impl AsRef<Path>, vk_path: impl AsRef<Path>) -> Vec<Scalar> {
     let proof = load_proof(&proof_path).expect("load proof failed");
     let vk = load_verifying_key(&vk_path).expect("load verifying key failed");
@@ -362,6 +365,7 @@ pub fn verify_circuit(proof_path: impl AsRef<Path>, vk_path: impl AsRef<Path>) -
 
 /// Verify circuit with pre-loaded data - useful for benchmarking to exclude file I/O.
 /// Returns the public values embedded in the proof.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify_circuit_with_loaded_data(
     proof: &R1CSSNARK<E>,
     vk: &<R1CSSNARK<E> as R1CSSNARKTrait<E>>::VerifierKey,
@@ -375,12 +379,13 @@ pub fn verify_circuit_with_loaded_data(
     public_values
 }
 
-/// Generate witness for the Prepare circuit.
-/// Returns the full witness vector, the decoded age-claim bytes, and the extracted KeyBindingX/Y values.
+/// Generate witness for the Prepare circuit (native builds only).
+/// Returns the full witness vector.
 ///
 /// # Arguments
 /// * `config` - Path configuration for resolving file paths
 /// * `input_json_path` - Optional override for input JSON path (absolute or relative to config.base_dir)
+#[cfg(feature = "native-witness")]
 pub fn generate_prepare_witness(
     config: &PathConfig,
     input_json_path: Option<&Path>,
@@ -419,4 +424,13 @@ pub fn generate_prepare_witness(
     let witness = parse_witness(&witness_bytes)?;
 
     Ok(witness)
+}
+
+/// Stub for WASM builds - witness must be provided via with_witness() constructor.
+#[cfg(not(feature = "native-witness"))]
+pub fn generate_prepare_witness(
+    _config: &PathConfig,
+    _input_json_path: Option<&Path>,
+) -> Result<Vec<Scalar>, SynthesisError> {
+    Err(SynthesisError::AssignmentMissing)
 }

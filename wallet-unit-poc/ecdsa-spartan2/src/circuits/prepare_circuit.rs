@@ -1,3 +1,4 @@
+use super::synthesize_witness_only;
 use crate::{
     paths::PathConfig, prover::generate_prepare_witness, utils::calculate_jwt_output_indices,
     Scalar, E,
@@ -12,20 +13,23 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+// Native witness generation via witnesscalc_adapter (disabled for WASM builds)
+#[cfg(feature = "native-witness")]
 witnesscalc_adapter::witness!(jwt);
 
-#[cfg(has_circuit_1k)]
+#[cfg(all(feature = "native-witness", has_circuit_1k))]
 witnesscalc_adapter::witness!(jwt_1k);
 
-#[cfg(has_circuit_2k)]
+#[cfg(all(feature = "native-witness", has_circuit_2k))]
 witnesscalc_adapter::witness!(jwt_2k);
 
-#[cfg(has_circuit_4k)]
+#[cfg(all(feature = "native-witness", has_circuit_4k))]
 witnesscalc_adapter::witness!(jwt_4k);
 
-#[cfg(has_circuit_8k)]
+#[cfg(all(feature = "native-witness", has_circuit_8k))]
 witnesscalc_adapter::witness!(jwt_8k);
 
+#[cfg(feature = "native-witness")]
 pub(crate) fn call_jwt_witness(
     circuit_name: &str,
     inputs_json: &str,
@@ -57,6 +61,15 @@ pub(crate) fn call_jwt_witness(
     };
 
     result.map_err(|_| SynthesisError::Unsatisfiable)
+}
+
+// Stub for WASM builds - witness generation happens in JavaScript
+#[cfg(not(feature = "native-witness"))]
+pub(crate) fn call_jwt_witness(
+    _circuit_name: &str,
+    _inputs_json: &str,
+) -> Result<Vec<u8>, SynthesisError> {
+    Err(SynthesisError::Unsatisfiable)
 }
 
 /// PrepareCircuit wraps the JWT verification circuit.
@@ -100,6 +113,16 @@ impl PrepareCircuit {
         }
     }
 
+    /// Create with pre-computed witness (for WASM usage where witness is generated externally).
+    /// This bypasses filesystem I/O entirely.
+    pub fn with_witness(witness: Vec<Scalar>) -> Self {
+        Self {
+            path_config: PathConfig::default(),
+            input_path: None,
+            cached_witness: Arc::new(Mutex::new(Some(witness))),
+        }
+    }
+
     /// Resolve the input JSON path using PathConfig.
     fn resolve_input_json(&self) -> PathBuf {
         self.input_path
@@ -140,21 +163,32 @@ impl SpartanCircuit<E> for PrepareCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        let r1cs_path = self.r1cs_path();
-
         let cs_type = type_name::<CS>();
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
+            let r1cs =
+                load_r1cs(&self.r1cs_path()).map_err(|_| SynthesisError::AssignmentMissing)?;
             synthesize(cs, r1cs, None)?;
             return Ok(());
         }
 
         let witness = self.get_or_generate_witness()?;
 
-        let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
-        synthesize(cs, r1cs, Some(witness))?;
+        match load_r1cs::<Scalar>(&self.r1cs_path()) {
+            Ok(r1cs) => {
+                synthesize(cs, r1cs, Some(witness))?;
+            }
+            Err(_) => {
+                // Prepare circuit: public signals = ageClaim[decoded_len] + KeyBindingX + KeyBindingY
+                let layout = calculate_jwt_output_indices(
+                    self.path_config.circuit_size.max_matches(),
+                    self.path_config.circuit_size.max_claims_length(),
+                );
+                let num_public = layout.age_claim_len + 2;
+                synthesize_witness_only(cs, &witness, num_public)?;
+            }
+        }
         Ok(())
     }
 
@@ -183,11 +217,17 @@ impl SpartanCircuit<E> for PrepareCircuit {
             self.path_config.circuit_size.max_claims_length(),
         );
 
-        // Only attempt witness generation if input path is set (skips during setup)
-        let witness = self
-            .input_path
-            .as_ref()
-            .and_then(|_| self.get_or_generate_witness().ok());
+        // Check cached witness first (covers with_witness() path), then try
+        // generating from input_path (native path). Returns None during setup.
+        let witness = {
+            let cache = self.cached_witness.lock().unwrap();
+            cache.clone()
+        }
+        .or_else(|| {
+            self.input_path
+                .as_ref()
+                .and_then(|_| self.get_or_generate_witness().ok())
+        });
 
         let keybinding_x = witness
             .as_ref()

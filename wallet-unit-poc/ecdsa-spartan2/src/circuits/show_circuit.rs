@@ -1,16 +1,19 @@
+use super::synthesize_witness_only;
 use crate::{paths::PathConfig, utils::*, Scalar, E};
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
 use circom_scotia::{reader::load_r1cs, synthesize};
 use ff::Field;
 use spartan2::traits::circuit::SpartanCircuit;
+#[cfg(feature = "native-witness")]
+use std::time::Instant;
 use std::{
     any::type_name,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Instant,
 };
 use tracing::info;
 
+#[cfg(feature = "native-witness")]
 witnesscalc_adapter::witness!(show);
 
 // show.circom
@@ -54,6 +57,16 @@ impl ShowCircuit {
         }
     }
 
+    /// Create with pre-computed witness (for WASM usage where witness is generated externally).
+    /// This bypasses filesystem I/O entirely.
+    pub fn with_witness(witness: Vec<Scalar>) -> Self {
+        Self {
+            path_config: PathConfig::default(),
+            input_path: None,
+            cached_witness: Arc::new(Mutex::new(Some(witness))),
+        }
+    }
+
     /// Resolve the input JSON path using PathConfig.
     fn resolve_input_json(&self) -> PathBuf {
         self.input_path
@@ -68,6 +81,7 @@ impl ShowCircuit {
     }
 
     /// Get cached witness or generate and cache it.
+    #[cfg(feature = "native-witness")]
     fn get_or_generate_witness(&self) -> Result<Vec<Scalar>, SynthesisError> {
         let mut cache = self.cached_witness.lock().unwrap();
 
@@ -105,6 +119,19 @@ impl ShowCircuit {
 
         Ok(witness)
     }
+
+    /// Get cached witness (for WASM builds where witness is pre-computed via with_witness()).
+    #[cfg(not(feature = "native-witness"))]
+    fn get_or_generate_witness(&self) -> Result<Vec<Scalar>, SynthesisError> {
+        let cache = self.cached_witness.lock().unwrap();
+
+        if let Some(ref witness) = *cache {
+            return Ok(witness.clone());
+        }
+
+        // In WASM builds, witness must be provided via with_witness() constructor
+        Err(SynthesisError::AssignmentMissing)
+    }
 }
 
 impl SpartanCircuit<E> for ShowCircuit {
@@ -115,25 +142,32 @@ impl SpartanCircuit<E> for ShowCircuit {
         _: &[AllocatedNum<Scalar>],
         _: Option<&[Scalar]>,
     ) -> Result<(), SynthesisError> {
-        let r1cs_path = self.r1cs_path();
-
-        // Detect if we're in setup phase (ShapeCS) or prove phase (SatisfyingAssignment)
-        // During setup, we only need constraint structure instead of actual witness values
         let cs_type = type_name::<CS>();
         let is_setup_phase = cs_type.contains("ShapeCS");
 
         if is_setup_phase {
-            let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
-            // Pass None for witness during setup
+            let r1cs =
+                load_r1cs(&self.r1cs_path()).map_err(|_| SynthesisError::AssignmentMissing)?;
             synthesize(cs, r1cs, None)?;
             return Ok(());
         }
 
-        // Use cached witness (same as shared() used) for soundness
         let witness = self.get_or_generate_witness()?;
 
-        let r1cs = load_r1cs(&r1cs_path).map_err(|_| SynthesisError::AssignmentMissing)?;
-        synthesize(cs, r1cs, Some(witness))?;
+        // Try R1CS-based synthesis (native path). If R1CS is unavailable, fall back
+        // to witness-only variable allocation (WASM path). The proving key already
+        // contains the constraint matrices (A, B, C); Spartan2 only reads witness
+        // values from the CS during proving, so constraints are not needed here.
+        match load_r1cs::<Scalar>(&self.r1cs_path()) {
+            Ok(r1cs) => {
+                synthesize(cs, r1cs, Some(witness))?;
+            }
+            Err(_) => {
+                // Show circuit: 3 public signals (ageAbove18, deviceKeyX, deviceKeyY)
+                let num_public = 3;
+                synthesize_witness_only(cs, &witness, num_public)?;
+            }
+        }
         Ok(())
     }
 
@@ -153,16 +187,20 @@ impl SpartanCircuit<E> for ShowCircuit {
         &self,
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-        // Calculate witness layout (verified from show.sym)
         let layout =
             calculate_show_witness_indices(self.path_config.circuit_size.max_claims_length());
 
-        // Try to get witness; use zeros if unavailable (setup phase)
-        // Only attempt witness generation if input path is set (skips during setup)
-        let witness = self
-            .input_path
-            .as_ref()
-            .and_then(|_| self.get_or_generate_witness().ok());
+        // Check cached witness first (covers with_witness() path), then try
+        // generating from input_path (native path). Returns None during setup.
+        let witness = {
+            let cache = self.cached_witness.lock().unwrap();
+            cache.clone()
+        }
+        .or_else(|| {
+            self.input_path
+                .as_ref()
+                .and_then(|_| self.get_or_generate_witness().ok())
+        });
 
         let device_key_x = witness
             .as_ref()

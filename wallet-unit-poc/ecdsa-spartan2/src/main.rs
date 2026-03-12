@@ -327,7 +327,6 @@ fn run_prove_pipeline(
     info!("Reblinding Prepare proof...");
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        PrepareCircuit::new(path_config.clone(), input_path.clone()),
         &prepare_pk,
         prepare_instance,
         prepare_witness,
@@ -360,7 +359,6 @@ fn run_prove_pipeline(
     info!("Reblinding Show proof...");
     let t0 = Instant::now();
     reblind_with_loaded_data(
-        ShowCircuit::new(path_config.clone(), None),
         &show_pk,
         show_instance,
         show_witness,
@@ -588,7 +586,6 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
         CircuitAction::Reblind => {
             info!("Reblinding Prepare proof");
             reblind(
-                PrepareCircuit::default(),
                 path_config.key_path(PREPARE_PROVING_KEY),
                 path_config.artifact_path(PREPARE_INSTANCE),
                 path_config.artifact_path(PREPARE_WITNESS),
@@ -650,7 +647,6 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
         CircuitAction::Reblind => {
             info!("Reblinding Show proof");
             reblind(
-                ShowCircuit::default(),
                 path_config.key_path(SHOW_PROVING_KEY),
                 path_config.artifact_path(SHOW_INSTANCE),
                 path_config.artifact_path(SHOW_WITNESS),

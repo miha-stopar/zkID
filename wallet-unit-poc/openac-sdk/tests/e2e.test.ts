@@ -19,11 +19,6 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = join(__dirname, "..", "assets");
 
-// ---------------------------------------------------------------------------
-// Self-contained ES256 SD-JWT generator using only @noble/curves
-// ---------------------------------------------------------------------------
-
-/** Derive a P-256 public key point from a private key (scalar multiplication). */
 function derivePublicKey(privateKeyBytes: Uint8Array) {
   let hex = "";
   for (const b of privateKeyBytes) hex += b.toString(16).padStart(2, "0");
