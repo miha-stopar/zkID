@@ -39,7 +39,7 @@ function loadPublicKeysConfig(): PublicKeysConfig {
 }
 
 async function getIssuerKey(
-  kid: string
+  kid: string,
 ): Promise<{ privateKey: Buffer; publicKey: JwkEcdsaPublicKey; kid: string; jku: string }> {
   const publicKeysConfig = loadPublicKeysConfig();
   const publicKeyConfig = publicKeysConfig.keys.find((k) => k.kid === kid) || publicKeysConfig.keys[0];
@@ -99,6 +99,7 @@ export interface MockDataOptions {
   matches?: string[];
   decodeFlags?: number[];
   kid?: string;
+  targetPayloadLength?: number;
 }
 
 export interface MockDataResult {
@@ -162,6 +163,40 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
     nonce: nodeCrypto.randomBytes(16).toString("base64url"),
   };
 
+  if (options.targetPayloadLength) {
+    const targetLen = options.targetPayloadLength;
+    const probeToken = signJWT(header, { ...payload }, issuerJwkPrivate);
+    const probePayloadLen = probeToken.split(".")[1].length;
+
+    let effectiveTarget = targetLen;
+    if (options.circuitParams) {
+      const maxMessageLength = options.circuitParams[0];
+      const headerLen = probeToken.split(".")[0].length;
+      const sigLen = probeToken.split(".")[2].length;
+      const overhead = headerLen + 2 + sigLen; // 2 dots
+      const maxPayloadFromMsg = maxMessageLength - overhead;
+      effectiveTarget = Math.min(targetLen, maxPayloadFromMsg);
+    }
+
+    if (probePayloadLen < effectiveTarget) {
+      let lo = 0;
+      let hi = Math.ceil((effectiveTarget - probePayloadLen) * 2) + 100;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi + 1) / 2);
+        const testToken = signJWT(header, { ...payload, _padding: "A".repeat(mid) }, issuerJwkPrivate);
+        const testLen = testToken.split(".")[1].length;
+        if (testLen <= effectiveTarget) {
+          lo = mid;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      if (lo > 0) {
+        (payload as any)._padding = "A".repeat(lo);
+      }
+    }
+  }
+
   const token = signJWT(header, payload, issuerJwkPrivate);
   const tokenWithClaims = [token, ...claimStrings].join("~");
   const [, b64payload] = token.split(".");
@@ -172,7 +207,7 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
     circuitParamsArray = options.circuitParams;
     if (circuitParamsArray[1] < actualPayloadLength) {
       throw new Error(
-        `maxB64PayloadLength (${circuitParamsArray[1]}) too small. Increase to at least ${actualPayloadLength + 100}.`
+        `maxB64PayloadLength (${circuitParamsArray[1]}) too small. Increase to at least ${actualPayloadLength + 100}.`,
       );
     }
     const minMatches = claims.length + 2;
@@ -188,7 +223,7 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
   const circuitParams = generateJwtCircuitParams(circuitParamsArray);
   if (actualPayloadLength > circuitParams.maxB64PayloadLength) {
     throw new Error(
-      `Payload length (${actualPayloadLength}) exceeds maxB64PayloadLength (${circuitParams.maxB64PayloadLength}).`
+      `Payload length (${actualPayloadLength}) exceeds maxB64PayloadLength (${circuitParams.maxB64PayloadLength}).`,
     );
   }
 
@@ -204,7 +239,7 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
     issuerKeyData.publicKey,
     matches,
     claimStrings,
-    decodeFlags
+    decodeFlags,
   );
 
   return {

@@ -445,7 +445,6 @@ pub fn run_complete_benchmark(
 
     let start = std::time::Instant::now();
     reblind_with_loaded_data(
-        PrepareCircuit::default(),
         &prepare_pk,
         prepare_instance,
         prepare_witness,
@@ -484,7 +483,6 @@ pub fn run_complete_benchmark(
 
     let start = std::time::Instant::now();
     reblind_with_loaded_data(
-        ShowCircuit::default(),
         &show_pk,
         show_instance,
         show_witness,

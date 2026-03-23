@@ -16,7 +16,7 @@ export function generateShowCircuitParams(params: number[] | JwtCircuitParams): 
 
   assert.ok(
     typeof maxClaimsLength === "number" && Number.isFinite(maxClaimsLength) && maxClaimsLength > 0,
-    "maxClaimsLength must be a positive finite number"
+    "maxClaimsLength must be a positive finite number",
   );
 
   return { maxClaimsLength };
@@ -34,7 +34,7 @@ export function generateShowInputs(
   deviceSignature: string,
   deviceKey: JwkEcdsaPublicKey,
   claim: string,
-  currentDate: { year: number; month: number; day: number }
+  currentDate: { year: number; month: number; day: number },
 ): {
   deviceKeyX: bigint;
   deviceKeyY: bigint;
@@ -61,11 +61,11 @@ export function generateShowInputs(
   assert.ok(Number.isInteger(currentDate.year) && currentDate.year > 0, "Current year must be positive integer");
   assert.ok(
     Number.isInteger(currentDate.month) && currentDate.month >= 1 && currentDate.month <= 12,
-    "Current month must be between 1 and 12"
+    "Current month must be between 1 and 12",
   );
   assert.ok(
     Number.isInteger(currentDate.day) && currentDate.day >= 1 && currentDate.day <= 31,
-    "Current day must be between 1 and 31"
+    "Current day must be between 1 and 31",
   );
 
   const sig = Buffer.from(deviceSignature, "base64url");
@@ -83,7 +83,6 @@ export function generateShowInputs(
 
   const messageHash = sha256(nonce);
   const messageHashBigInt = bufferToBigInt(Buffer.from(messageHash));
-  // Reduce message hash modulo scalar field order (required for ECDSA)
   const scalarFieldOrder = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
   const messageHashModQ = messageHashBigInt % scalarFieldOrder;
 

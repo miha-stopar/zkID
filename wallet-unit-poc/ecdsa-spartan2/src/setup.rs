@@ -1,8 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 use std::{
     fs::{create_dir_all, File},
     io::{BufReader, Cursor, Write},
     path::Path,
-    time::Instant,
 };
 
 use spartan2::{
@@ -224,14 +225,20 @@ pub fn setup_circuit_keys<C: SpartanCircuit<E> + Clone + std::fmt::Debug>(
     let pk_path = pk_path.as_ref();
     let vk_path = vk_path.as_ref();
 
+    #[cfg(not(target_arch = "wasm32"))]
     let t0 = Instant::now();
+
     let (pk, vk) = R1CSSNARK::<E>::setup(circuit.clone()).expect("setup failed");
-    let setup_ms = t0.elapsed().as_millis();
-    info!(
-        elapsed_ms = setup_ms,
-        "Setup completed (~{:.1}s)",
-        setup_ms as f64 / 1000.0
-    );
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let setup_ms = t0.elapsed().as_millis();
+        info!(
+            elapsed_ms = setup_ms,
+            "Setup completed (~{:.1}s)",
+            setup_ms as f64 / 1000.0
+        );
+    }
 
     if let Err(e) = save_keys(pk_path, vk_path, &pk, &vk) {
         eprintln!("Failed to save keys: {}", e);

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>zkID - Privacy-Preserving Identity Demo</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <h1>zkID</h1>
+        <p class="subtitle">Privacy-Preserving Identity Verification</p>
+        <p class="description">
+          Full Pipeline: Prepare + Show with Shared Blinds
+        </p>
+      </header>
+
+      <div class="pipeline">
+        <!-- Step 1: Generate Test Case -->
+        <div class="step" id="step-1">
+          <div class="step-header">
+            <span class="step-number">1</span>
+            <div class="step-info">
+              <h2>Generate Test Case</h2>
+              <p class="step-desc">
+                Create an SD-JWT with selective disclosure claims, issuer key
+                pair, and device key pair.
+              </p>
+            </div>
+            <button class="btn" id="btn-generate" type="button">
+              Generate
+            </button>
+          </div>
+          <div class="step-details" id="details-1"></div>
+          <div class="step-status" id="status-1"></div>
+        </div>
+
+        <!-- Step 2: Precompute -->
+        <div class="step disabled" id="step-2">
+          <div class="step-header">
+            <span class="step-number">2</span>
+            <div class="step-info">
+              <h2>Precompute</h2>
+              <p class="step-desc">
+                Parse credential, build JWT circuit inputs, generate witness,
+                and prove Prepare circuit via WASM.
+              </p>
+            </div>
+            <button class="btn" id="btn-precompute" type="button" disabled>
+              Precompute
+            </button>
+          </div>
+          <div class="step-details" id="details-2"></div>
+          <div class="step-status" id="status-2"></div>
+        </div>
+
+        <!-- Step 3: Present Proof -->
+        <div class="step disabled" id="step-3">
+          <div class="step-header">
+            <span class="step-number">3</span>
+            <div class="step-info">
+              <h2>Present Proof</h2>
+              <p class="step-desc">
+                Sign verifier nonce with device key, build Show circuit inputs,
+                prove Show circuit, and reblind both proofs with shared
+                randomness.
+              </p>
+            </div>
+            <button class="btn" id="btn-present" type="button" disabled>
+              Present
+            </button>
+          </div>
+          <div class="step-details" id="details-3"></div>
+          <div class="step-status" id="status-3"></div>
+        </div>
+
+        <!-- Step 4: Verify -->
+        <div class="step disabled" id="step-4">
+          <div class="step-header">
+            <span class="step-number">4</span>
+            <div class="step-info">
+              <h2>Verify Proofs</h2>
+              <p class="step-desc">
+                Verify both Prepare and Show proofs, validate shared commitment
+                (comm_W_shared), and extract public values.
+              </p>
+            </div>
+            <button class="btn" id="btn-verify" type="button" disabled>
+              Verify
+            </button>
+          </div>
+          <div class="step-details" id="details-4"></div>
+          <div class="step-status" id="status-4"></div>
+        </div>
+      </div>
+
+      <!-- Verification Result Banner -->
+      <div class="result-banner hidden" id="result-banner">
+        <div class="result-icon" id="result-icon"></div>
+        <div class="result-body">
+          <h3 id="result-title"></h3>
+          <div class="result-details" id="result-details"></div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <p>
+          Powered by
+          <strong>Spartan2 + Hyrax</strong> ZK-SNARK prover running in
+          WebAssembly.
+        </p>
+        <p>
+          Circuits: <code>jwt.circom</code> (Prepare) +
+          <code>show.circom</code> (Show) on secq256r1 field.
+        </p>
+      </footer>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

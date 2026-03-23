@@ -16,11 +16,6 @@ pub enum FieldParser {
     BigInt2DArray,
 }
 
-/// Circuit parameters matching jwt.circom instantiation in main/jwt.circom:
-/// todo make it generic from circuit values
-pub const MAX_MATCHES: usize = 4;
-pub const MAX_CLAIMS_LENGTH: usize = 128;
-
 pub fn parse_inputs(
     json_value: &Value,
     field_defs: &[(&str, FieldParser)],
@@ -209,21 +204,26 @@ pub fn parse_witness(witness_bytes: &[u8]) -> Result<Vec<Scalar>, SynthesisError
     Err(SynthesisError::Unsatisfiable)
 }
 
-/// Convert HashMap<String, Vec<BigInt>> to JSON string for witnesscalc_adapter
-/// Reconstructs 2D arrays for fields that were flattened during parsing
+/// Convert HashMap<String, Vec<BigInt>> to JSON string for witnesscalc_adapter.
+/// Reconstructs 2D arrays for fields that were flattened during parsing.
 pub fn hashmap_to_json_string(
     inputs: &HashMap<String, Vec<BigInt>>,
+    max_matches: usize,
+    max_substring_length: usize,
+    max_claims_length: usize,
 ) -> Result<String, SynthesisError> {
     use serde_json::json;
 
     let mut json_map = serde_json::Map::new();
 
     // Define 2D array fields and their dimensions (rows, cols)
-    let two_d_fields: HashMap<&str, (usize, usize)> =
-        [("claims", (4, 128)), ("matchSubstring", (4, 50))]
-            .iter()
-            .cloned()
-            .collect();
+    let two_d_fields: HashMap<&str, (usize, usize)> = [
+        ("claims", (max_matches, max_claims_length)),
+        ("matchSubstring", (max_matches, max_substring_length)),
+    ]
+    .iter()
+    .cloned()
+    .collect();
 
     for (key, values) in inputs.iter() {
         // Check if this is a 2D array field

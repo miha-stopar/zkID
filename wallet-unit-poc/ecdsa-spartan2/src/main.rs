@@ -1,25 +1,25 @@
 //! CLI for running the Spartan-2 Prepare and Show circuits.
 //!
 //! Usage examples:
-//!   cargo run --release -- prepare run --input ../circom/inputs/jwt/generated.json
-//!   cargo run --release -- show prove --input ../circom/inputs/show/custom.json
-//!   cargo run --release -- prepare setup
-//!   cargo run --release -- show verify
-//!
-//! Legacy aliases such as `prepare`, `show`, `prove_prepare`, `setup_show`, etc. remain available.
+//!   cargo run --release -- prepare run --size 1k --input ../circom/inputs/jwt/1k/default.json
+//!   cargo run --release -- show prove --size 2k
+//!   cargo run --release -- prepare setup --size 1k
+//!   cargo run --release -- show verify --size 1k
+//!   cargo run --release -- benchmark --size 2k
+//!   cargo run --release -- benchmark-all
 //!
 //! Typical post-keygen flow:
-//! 0. `prepare setup` and `show setup` — load proving/verification keys and witnesses for each circuit.
-//! 1. `generate_shared_blinds` — derive shared blinding factors used by both circuits.
+//! 0. `prepare setup --size Xk` and `show setup --size Xk` — generate keys (one-time, slow).
+//! 1. `generate_shared_blinds` — derive shared blinding factors.
 //! 2. `prove_prepare` — produce the initial Prepare proof.
-//! 3. `reblind_prepare` — reblind the Prepare proof without changing its `comm_W_shared`.
+//! 3. `reblind_prepare` — reblind the Prepare proof.
 //! 4. `prove_show` — produce the Show proof using the shared witness commitment.
-//! 5. `reblind_show` — reblind the Show proof; the reblinded proof maintains the same `comm_W_shared` as step 3.
-//!
-//! Every proof emitted in this sequence (including the reblinded variants) should verify successfully.
+//! 5. `reblind_show` — reblind the Show proof.
 
 use ecdsa_spartan2::{
-    generate_shared_blinds, load_instance, load_proof, load_shared_blinds, load_witness,
+    circuit_size::CircuitSize,
+    generate_shared_blinds, load_instance, load_proof, load_proving_key, load_shared_blinds,
+    load_verifying_key, load_witness,
     paths::keys::{
         PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY,
         PREPARE_WITNESS, SHARED_BLINDS, SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY,
@@ -36,15 +36,15 @@ use tracing_subscriber::EnvFilter;
 
 const NUM_SHARED: usize = 1;
 
-/// Helper function to get file size in bytes
 fn get_file_size(path: &str) -> u64 {
     fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
 #[derive(Debug)]
 struct BenchmarkResults {
-    prepare_setup_ms: u128,
-    show_setup_ms: u128,
+    size: CircuitSize,
+    prepare_setup_ms: Option<u128>,
+    show_setup_ms: Option<u128>,
     generate_blinds_ms: u128,
     prove_prepare_ms: u128,
     reblind_prepare_ms: u128,
@@ -52,7 +52,7 @@ struct BenchmarkResults {
     reblind_show_ms: u128,
     verify_prepare_ms: u128,
     verify_show_ms: u128,
-    // Size measurements in bytes
+
     prepare_proving_key_bytes: u64,
     prepare_verifying_key_bytes: u64,
     show_proving_key_bytes: u64,
@@ -75,84 +75,415 @@ impl BenchmarkResults {
     }
 
     fn print_summary(&self) {
-        println!("\n╔════════════════════════════════════════════════╗");
-        println!("║        BENCHMARK RESULTS SUMMARY               ║");
-        println!("╠════════════════════════════════════════════════╣");
-        println!("║ TIMING MEASUREMENTS                            ║");
-        println!("╠════════════════════════════════════════════════╣");
+        println!("\n╔════════════════════════════════════════════════════╗");
         println!(
-            "║ Prepare Setup:          {:>10} ms      ║",
-            self.prepare_setup_ms
+            "║   BENCHMARK RESULTS — circuit size: {:>4}           ║",
+            self.size
         );
+        println!("╠════════════════════════════════════════════════════╣");
+        println!("║ TIMING MEASUREMENTS                                ║");
+        println!("╠════════════════════════════════════════════════════╣");
+        if let Some(ms) = self.prepare_setup_ms {
+            println!("║ Prepare Setup:          {:>10} ms          ║", ms);
+        }
+        if let Some(ms) = self.show_setup_ms {
+            println!("║ Show Setup:             {:>10} ms          ║", ms);
+        }
         println!(
-            "║ Show Setup:             {:>10} ms      ║",
-            self.show_setup_ms
-        );
-        println!(
-            "║ Generate Blinds:        {:>10} ms      ║",
+            "║ Generate Blinds:        {:>10} ms          ║",
             self.generate_blinds_ms
         );
         println!(
-            "║ Prove Prepare:          {:>10} ms      ║",
+            "║ Prove Prepare:          {:>10} ms          ║",
             self.prove_prepare_ms
         );
         println!(
-            "║ Reblind Prepare:        {:>10} ms      ║",
+            "║ Reblind Prepare:        {:>10} ms          ║",
             self.reblind_prepare_ms
         );
         println!(
-            "║ Prove Show:             {:>10} ms      ║",
+            "║ Prove Show:             {:>10} ms          ║",
             self.prove_show_ms
         );
         println!(
-            "║ Reblind Show:           {:>10} ms      ║",
+            "║ Reblind Show:           {:>10} ms          ║",
             self.reblind_show_ms
         );
         println!(
-            "║ Verify Prepare:         {:>10} ms      ║",
+            "║ Verify Prepare:         {:>10} ms          ║",
             self.verify_prepare_ms
         );
         println!(
-            "║ Verify Show:            {:>10} ms      ║",
+            "║ Verify Show:            {:>10} ms          ║",
             self.verify_show_ms
         );
-        println!("╠════════════════════════════════════════════════╣");
-        println!("║ SIZE MEASUREMENTS                              ║");
-        println!("╠════════════════════════════════════════════════╣");
+        println!("╠════════════════════════════════════════════════════╣");
+        println!("║ SIZE MEASUREMENTS                                  ║");
+        println!("╠════════════════════════════════════════════════════╣");
         println!(
-            "║ Prepare Proving Key:    {:>12}       ║",
+            "║ Prepare Proving Key:    {:>14}         ║",
             Self::format_size(self.prepare_proving_key_bytes)
         );
         println!(
-            "║ Prepare Verifying Key:  {:>12}       ║",
+            "║ Prepare Verifying Key:  {:>14}         ║",
             Self::format_size(self.prepare_verifying_key_bytes)
         );
         println!(
-            "║ Show Proving Key:       {:>12}       ║",
+            "║ Show Proving Key:       {:>14}         ║",
             Self::format_size(self.show_proving_key_bytes)
         );
         println!(
-            "║ Show Verifying Key:     {:>12}       ║",
+            "║ Show Verifying Key:     {:>14}         ║",
             Self::format_size(self.show_verifying_key_bytes)
         );
         println!(
-            "║ Prepare Proof:          {:>12}       ║",
+            "║ Prepare Proof:          {:>14}         ║",
             Self::format_size(self.prepare_proof_bytes)
         );
         println!(
-            "║ Show Proof:             {:>12}       ║",
+            "║ Show Proof:             {:>14}         ║",
             Self::format_size(self.show_proof_bytes)
         );
         println!(
-            "║ Prepare Witness:        {:>12}       ║",
+            "║ Prepare Witness:        {:>14}         ║",
             Self::format_size(self.prepare_witness_bytes)
         );
         println!(
-            "║ Show Witness:           {:>12}       ║",
+            "║ Show Witness:           {:>14}         ║",
             Self::format_size(self.show_witness_bytes)
         );
-        println!("╚════════════════════════════════════════════════╝\n");
+        println!("╚════════════════════════════════════════════════════╝\n");
     }
+}
+
+fn print_comparison_table(results: &[BenchmarkResults]) {
+    if results.is_empty() {
+        println!("No results to display.");
+        return;
+    }
+
+    let col_w = 12usize;
+    let label_w = 24usize;
+
+    let hdr: Vec<String> = results
+        .iter()
+        .map(|r| format!("{:>width$}", r.size, width = col_w))
+        .collect();
+    let top_sep = "═".repeat(col_w + 1);
+    let mid_sep = "─".repeat(col_w + 1);
+
+    print!("╔{:═<width$}╦", "", width = label_w + 2);
+    println!(
+        "{}╗",
+        hdr.iter()
+            .map(|_| top_sep.clone())
+            .collect::<Vec<_>>()
+            .join("╦")
+    );
+
+    print!("║ {:width$} ║", "Metric", width = label_w);
+    for h in &hdr {
+        print!("{}║", h);
+    }
+    println!();
+
+    print!("╠{:═<width$}╬", "", width = label_w + 2);
+    println!(
+        "{}╣",
+        hdr.iter()
+            .map(|_| top_sep.clone())
+            .collect::<Vec<_>>()
+            .join("╬")
+    );
+
+    let row = |label: &str, vals: &[String]| {
+        let mut s = format!("║ {:width$} ║", label, width = label_w);
+        for v in vals {
+            s.push_str(&format!("{:>width$}║", v, width = col_w + 1));
+        }
+        println!("{}", s);
+    };
+
+    let ms = |f: fn(&BenchmarkResults) -> u128| -> Vec<String> {
+        results.iter().map(|r| format!("{} ms", f(r))).collect()
+    };
+    let sz = |f: fn(&BenchmarkResults) -> u64| -> Vec<String> {
+        results
+            .iter()
+            .map(|r| BenchmarkResults::format_size(f(r)))
+            .collect()
+    };
+
+    row("Generate Blinds", &ms(|r| r.generate_blinds_ms));
+    row("Prove Prepare", &ms(|r| r.prove_prepare_ms));
+    row("Reblind Prepare", &ms(|r| r.reblind_prepare_ms));
+    row("Prove Show", &ms(|r| r.prove_show_ms));
+    row("Reblind Show", &ms(|r| r.reblind_show_ms));
+    row("Verify Prepare", &ms(|r| r.verify_prepare_ms));
+    row("Verify Show", &ms(|r| r.verify_show_ms));
+
+    print!("╠{:═<width$}╬", "", width = label_w + 2);
+    println!(
+        "{}╣",
+        hdr.iter()
+            .map(|_| top_sep.clone())
+            .collect::<Vec<_>>()
+            .join("╬")
+    );
+
+    row("Prepare Proof", &sz(|r| r.prepare_proof_bytes));
+    row("Show Proof", &sz(|r| r.show_proof_bytes));
+    row("Prepare Proving Key", &sz(|r| r.prepare_proving_key_bytes));
+    row("Show Proving Key", &sz(|r| r.show_proving_key_bytes));
+
+    print!("╚{:═<width$}╩", "", width = label_w + 2);
+    println!(
+        "{}╝\n",
+        results
+            .iter()
+            .map(|_| mid_sep.replace('─', "═"))
+            .collect::<Vec<_>>()
+            .join("╩")
+    );
+}
+
+/// Prove + reblind + verify pipeline using pre-existing keys on disk.
+fn run_prove_pipeline(
+    path_config: &PathConfig,
+    input_path: Option<PathBuf>,
+) -> Result<BenchmarkResults, String> {
+    let size = path_config.circuit_size;
+
+    if input_path.is_none() {
+        let jwt_input = path_config.input_json("jwt");
+        if !jwt_input.exists() {
+            return Err(format!(
+                "JWT inputs not found for size {size}:\n  {}\nRun: yarn generate:inputs --size {size}",
+                jwt_input.display()
+            ));
+        }
+        let show_input = path_config.input_json("show");
+        if !show_input.exists() {
+            return Err(format!(
+                "Show inputs not found for size {size}:\n  {}\nRun: yarn generate:inputs --size {size}",
+                show_input.display()
+            ));
+        }
+    }
+
+    let prepare_pk_path = path_config.key_path(PREPARE_PROVING_KEY);
+    let prepare_vk_path = path_config.key_path(PREPARE_VERIFYING_KEY);
+    let show_pk_path = path_config.key_path(SHOW_PROVING_KEY);
+    let show_vk_path = path_config.key_path(SHOW_VERIFYING_KEY);
+
+    if !prepare_pk_path.exists() || !prepare_vk_path.exists() {
+        return Err(format!(
+            "Prepare keys not found for size {size}.\n\
+             Run:  cargo run --release -- prepare setup --size {size}"
+        ));
+    }
+    if !show_pk_path.exists() || !show_vk_path.exists() {
+        return Err(format!(
+            "Show keys not found for size {size}.\n\
+             Run:  cargo run --release -- show setup --size {size}"
+        ));
+    }
+
+    let prepare_pk = load_proving_key(&prepare_pk_path)
+        .map_err(|e| format!("Failed to load prepare proving key: {e}"))?;
+    let prepare_vk = load_verifying_key(&prepare_vk_path)
+        .map_err(|e| format!("Failed to load prepare verifying key: {e}"))?;
+    let show_pk = load_proving_key(&show_pk_path)
+        .map_err(|e| format!("Failed to load show proving key: {e}"))?;
+    let show_vk = load_verifying_key(&show_vk_path)
+        .map_err(|e| format!("Failed to load show verifying key: {e}"))?;
+
+    info!("Generating shared blinds...");
+    let t0 = Instant::now();
+    generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
+    let generate_blinds_ms = t0.elapsed().as_millis();
+    println!("✓ Shared blinds generated: {} ms\n", generate_blinds_ms);
+
+    info!("Proving Prepare circuit...");
+    let t0 = Instant::now();
+    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
+    prove_circuit_with_pk(
+        prepare_circuit,
+        &prepare_pk,
+        path_config.artifact_path(PREPARE_INSTANCE),
+        path_config.artifact_path(PREPARE_WITNESS),
+        path_config.artifact_path(PREPARE_PROOF),
+    );
+    let prove_prepare_ms = t0.elapsed().as_millis();
+    println!("✓ Prepare proof generated: {} ms\n", prove_prepare_ms);
+
+    let prepare_instance = load_instance(path_config.artifact_path(PREPARE_INSTANCE))
+        .expect("load prepare instance failed");
+    let prepare_witness = load_witness(path_config.artifact_path(PREPARE_WITNESS))
+        .expect("load prepare witness failed");
+    let shared_blinds = load_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS))
+        .expect("load shared_blinds failed");
+
+    info!("Reblinding Prepare proof...");
+    let t0 = Instant::now();
+    reblind_with_loaded_data(
+        &prepare_pk,
+        prepare_instance,
+        prepare_witness,
+        &shared_blinds,
+        path_config.artifact_path(PREPARE_INSTANCE),
+        path_config.artifact_path(PREPARE_WITNESS),
+        path_config.artifact_path(PREPARE_PROOF),
+    );
+    let reblind_prepare_ms = t0.elapsed().as_millis();
+    println!("✓ Prepare proof reblinded: {} ms\n", reblind_prepare_ms);
+
+    info!("Proving Show circuit...");
+    let t0 = Instant::now();
+    let show_circuit = ShowCircuit::new(path_config.clone(), None);
+    prove_circuit_with_pk(
+        show_circuit,
+        &show_pk,
+        path_config.artifact_path(SHOW_INSTANCE),
+        path_config.artifact_path(SHOW_WITNESS),
+        path_config.artifact_path(SHOW_PROOF),
+    );
+    let prove_show_ms = t0.elapsed().as_millis();
+    println!("✓ Show proof generated: {} ms\n", prove_show_ms);
+
+    let show_instance =
+        load_instance(path_config.artifact_path(SHOW_INSTANCE)).expect("load show instance failed");
+    let show_witness =
+        load_witness(path_config.artifact_path(SHOW_WITNESS)).expect("load show witness failed");
+
+    info!("Reblinding Show proof...");
+    let t0 = Instant::now();
+    reblind_with_loaded_data(
+        &show_pk,
+        show_instance,
+        show_witness,
+        &shared_blinds,
+        path_config.artifact_path(SHOW_INSTANCE),
+        path_config.artifact_path(SHOW_WITNESS),
+        path_config.artifact_path(SHOW_PROOF),
+    );
+    let reblind_show_ms = t0.elapsed().as_millis();
+    println!("✓ Show proof reblinded: {} ms\n", reblind_show_ms);
+
+    let prepare_proof =
+        load_proof(path_config.artifact_path(PREPARE_PROOF)).expect("load prepare proof failed");
+
+    info!("Verifying Prepare proof...");
+    let t0 = Instant::now();
+    let _prepare_public_values = verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
+    let verify_prepare_ms = t0.elapsed().as_millis();
+    println!("✓ Prepare proof verified: {} ms\n", verify_prepare_ms);
+
+    let show_proof =
+        load_proof(path_config.artifact_path(SHOW_PROOF)).expect("load show proof failed");
+
+    info!("Verifying Show proof...");
+    let t0 = Instant::now();
+    let show_public_values = verify_circuit_with_loaded_data(&show_proof, &show_vk);
+    let verify_show_ms = t0.elapsed().as_millis();
+    println!("✓ Show proof verified: {} ms", verify_show_ms);
+    if !show_public_values.is_empty() {
+        let age_above_18 = show_public_values[0] == Field::ONE;
+        println!("  ageAbove18: {}\n", age_above_18);
+    }
+
+    let prepare_proving_key_bytes =
+        get_file_size(&path_config.key_path(PREPARE_PROVING_KEY).to_string_lossy());
+    let prepare_verifying_key_bytes = get_file_size(
+        &path_config
+            .key_path(PREPARE_VERIFYING_KEY)
+            .to_string_lossy(),
+    );
+    let show_proving_key_bytes =
+        get_file_size(&path_config.key_path(SHOW_PROVING_KEY).to_string_lossy());
+    let show_verifying_key_bytes =
+        get_file_size(&path_config.key_path(SHOW_VERIFYING_KEY).to_string_lossy());
+    let prepare_proof_bytes =
+        get_file_size(&path_config.artifact_path(PREPARE_PROOF).to_string_lossy());
+    let show_proof_bytes = get_file_size(&path_config.artifact_path(SHOW_PROOF).to_string_lossy());
+    let prepare_witness_bytes =
+        get_file_size(&path_config.artifact_path(PREPARE_WITNESS).to_string_lossy());
+    let show_witness_bytes =
+        get_file_size(&path_config.artifact_path(SHOW_WITNESS).to_string_lossy());
+
+    Ok(BenchmarkResults {
+        size,
+        prepare_setup_ms: None,
+        show_setup_ms: None,
+        generate_blinds_ms,
+        prove_prepare_ms,
+        reblind_prepare_ms,
+        prove_show_ms,
+        reblind_show_ms,
+        verify_prepare_ms,
+        verify_show_ms,
+        prepare_proving_key_bytes,
+        prepare_verifying_key_bytes,
+        show_proving_key_bytes,
+        show_verifying_key_bytes,
+        prepare_proof_bytes,
+        show_proof_bytes,
+        prepare_witness_bytes,
+        show_witness_bytes,
+    })
+}
+
+/// Full 9-step benchmark: setup → prove → reblind → verify.
+fn run_complete_pipeline(path_config: PathConfig, input_path: Option<PathBuf>) -> BenchmarkResults {
+    let size = path_config.circuit_size;
+
+    println!("\n╔════════════════════════════════════════════════════╗");
+    println!(
+        "║  STARTING COMPLETE BENCHMARK PIPELINE  (size: {:>3})  ║",
+        size
+    );
+    println!("╚════════════════════════════════════════════════════╝\n");
+
+    info!("Step 1/9: Setting up Prepare circuit...");
+    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
+    let t0 = Instant::now();
+    let (prepare_pk, prepare_vk) = setup_circuit_keys_no_save(prepare_circuit);
+    let prepare_setup_ms = t0.elapsed().as_millis();
+    println!("✓ Prepare setup completed: {} ms\n", prepare_setup_ms);
+
+    if let Err(e) = save_keys(
+        path_config.key_path(PREPARE_PROVING_KEY),
+        path_config.key_path(PREPARE_VERIFYING_KEY),
+        &prepare_pk,
+        &prepare_vk,
+    ) {
+        eprintln!("Failed to save Prepare keys: {}", e);
+        process::exit(1);
+    }
+
+    info!("Step 2/9: Setting up Show circuit...");
+    let show_circuit = ShowCircuit::new(path_config.clone(), None);
+    let t0 = Instant::now();
+    let (show_pk, show_vk) = setup_circuit_keys_no_save(show_circuit);
+    let show_setup_ms = t0.elapsed().as_millis();
+    println!("✓ Show setup completed: {} ms\n", show_setup_ms);
+
+    if let Err(e) = save_keys(
+        path_config.key_path(SHOW_PROVING_KEY),
+        path_config.key_path(SHOW_VERIFYING_KEY),
+        &show_pk,
+        &show_vk,
+    ) {
+        eprintln!("Failed to save Show keys: {}", e);
+        process::exit(1);
+    }
+
+    let mut results = run_prove_pipeline(&path_config, input_path)
+        .expect("prove pipeline failed after successful setup");
+
+    results.prepare_setup_ms = Some(prepare_setup_ms);
+    results.show_setup_ms = Some(show_setup_ms);
+    results
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +506,13 @@ enum CircuitAction {
 #[derive(Debug, Default, Clone)]
 struct CommandOptions {
     input: Option<PathBuf>,
+    size: Option<CircuitSize>,
+}
+
+impl CommandOptions {
+    fn path_config(&self) -> PathConfig {
+        PathConfig::development_with_size(self.size.unwrap_or_default())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -209,216 +547,12 @@ fn main() {
     }
 }
 
-/// Run the complete benchmark pipeline for a given input file
-fn run_complete_pipeline(input_path: Option<PathBuf>) -> BenchmarkResults {
-    let path_config = PathConfig::development();
-
-    println!("\n╔════════════════════════════════════════════════╗");
-    println!("║     STARTING COMPLETE BENCHMARK PIPELINE       ║");
-    println!("╚════════════════════════════════════════════════╝\n");
-
-    // Step 1: Setup Prepare Circuit
-    info!("Step 1/9: Setting up Prepare circuit...");
-    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
-    let t0 = Instant::now();
-    let (prepare_pk, prepare_vk) = setup_circuit_keys_no_save(prepare_circuit);
-    let prepare_setup_ms = t0.elapsed().as_millis();
-    println!("✓ Prepare setup completed: {} ms\n", prepare_setup_ms);
-
-    // Save Prepare keys after timing
-    if let Err(e) = save_keys(
-        path_config.key_path(PREPARE_PROVING_KEY),
-        path_config.key_path(PREPARE_VERIFYING_KEY),
-        &prepare_pk,
-        &prepare_vk,
-    ) {
-        eprintln!("Failed to save Prepare keys: {}", e);
-        std::process::exit(1);
-    }
-
-    // Step 2: Setup Show Circuit
-    info!("Step 2/9: Setting up Show circuit...");
-    let show_circuit = ShowCircuit::new(path_config.clone(), input_path.clone());
-    let t0 = Instant::now();
-    let (show_pk, show_vk) = setup_circuit_keys_no_save(show_circuit);
-    let show_setup_ms = t0.elapsed().as_millis();
-    println!("✓ Show setup completed: {} ms\n", show_setup_ms);
-
-    // Save Show keys after timing
-    if let Err(e) = save_keys(
-        path_config.key_path(SHOW_PROVING_KEY),
-        path_config.key_path(SHOW_VERIFYING_KEY),
-        &show_pk,
-        &show_vk,
-    ) {
-        eprintln!("Failed to save Show keys: {}", e);
-        std::process::exit(1);
-    }
-
-    // Step 3: Generate Shared Blinds
-    info!("Step 3/9: Generating shared blinds...");
-    let t0 = Instant::now();
-    generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
-    let generate_blinds_ms = t0.elapsed().as_millis();
-    println!("✓ Shared blinds generated: {} ms\n", generate_blinds_ms);
-
-    // Note: We already have prepare_pk and show_pk from setup, no need to reload from files
-
-    // Step 4: Prove Prepare Circuit
-    info!("Step 4/9: Proving Prepare circuit...");
-    let t0 = Instant::now();
-    let prepare_circuit = PrepareCircuit::new(path_config.clone(), input_path.clone());
-    prove_circuit_with_pk(
-        prepare_circuit,
-        &prepare_pk,
-        path_config.artifact_path(PREPARE_INSTANCE),
-        path_config.artifact_path(PREPARE_WITNESS),
-        path_config.artifact_path(PREPARE_PROOF),
-    );
-    let prove_prepare_ms = t0.elapsed().as_millis();
-    println!("✓ Prepare proof generated: {} ms\n", prove_prepare_ms);
-
-    // Step 5: Reblind Prepare
-    info!("Step 5/9: Reblinding Prepare proof...");
-    // Load data before timing (file I/O should not be part of reblind benchmark)
-    let prepare_instance = load_instance(path_config.artifact_path(PREPARE_INSTANCE))
-        .expect("load prepare instance failed");
-    let prepare_witness = load_witness(path_config.artifact_path(PREPARE_WITNESS))
-        .expect("load prepare witness failed");
-    let shared_blinds = load_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS))
-        .expect("load shared_blinds failed");
-
-    let t0 = Instant::now();
-    reblind_with_loaded_data(
-        PrepareCircuit::new(path_config.clone(), input_path.clone()),
-        &prepare_pk,
-        prepare_instance,
-        prepare_witness,
-        &shared_blinds,
-        path_config.artifact_path(PREPARE_INSTANCE),
-        path_config.artifact_path(PREPARE_WITNESS),
-        path_config.artifact_path(PREPARE_PROOF),
-    );
-    let reblind_prepare_ms = t0.elapsed().as_millis();
-    println!("✓ Prepare proof reblinded: {} ms\n", reblind_prepare_ms);
-
-    // Step 6: Prove Show Circuit
-    info!("Step 6/9: Proving Show circuit...");
-    let t0 = Instant::now();
-    let show_circuit = ShowCircuit::new(path_config.clone(), input_path.clone());
-    prove_circuit_with_pk(
-        show_circuit,
-        &show_pk,
-        path_config.artifact_path(SHOW_INSTANCE),
-        path_config.artifact_path(SHOW_WITNESS),
-        path_config.artifact_path(SHOW_PROOF),
-    );
-    let prove_show_ms = t0.elapsed().as_millis();
-    println!("✓ Show proof generated: {} ms\n", prove_show_ms);
-
-    // Step 7: Reblind Show
-    info!("Step 7/9: Reblinding Show proof...");
-    // Load data before timing (file I/O should not be part of reblind benchmark)
-    let show_instance =
-        load_instance(path_config.artifact_path(SHOW_INSTANCE)).expect("load show instance failed");
-    let show_witness =
-        load_witness(path_config.artifact_path(SHOW_WITNESS)).expect("load show witness failed");
-    // Reuse shared_blinds from Prepare step (already loaded)
-
-    let t0 = Instant::now();
-    reblind_with_loaded_data(
-        ShowCircuit::new(path_config.clone(), input_path.clone()),
-        &show_pk,
-        show_instance,
-        show_witness,
-        &shared_blinds,
-        path_config.artifact_path(SHOW_INSTANCE),
-        path_config.artifact_path(SHOW_WITNESS),
-        path_config.artifact_path(SHOW_PROOF),
-    );
-    let reblind_show_ms = t0.elapsed().as_millis();
-    println!("✓ Show proof reblinded: {} ms\n", reblind_show_ms);
-
-    // Step 8: Verify Prepare
-    info!("Step 8/9: Verifying Prepare proof...");
-    // Load proof and verifying key before timing (file I/O should not be part of verify benchmark)
-    let prepare_proof =
-        load_proof(path_config.artifact_path(PREPARE_PROOF)).expect("load prepare proof failed");
-    // Reuse prepare_vk from setup step (already in memory)
-
-    let t0 = Instant::now();
-    let _prepare_public_values = verify_circuit_with_loaded_data(&prepare_proof, &prepare_vk);
-    let verify_prepare_ms = t0.elapsed().as_millis();
-    println!("✓ Prepare proof verified: {} ms\n", verify_prepare_ms);
-
-    // Step 9: Verify Show
-    info!("Step 9/9: Verifying Show proof...");
-    // Load proof and verifying key before timing (file I/O should not be part of verify benchmark)
-    let show_proof =
-        load_proof(path_config.artifact_path(SHOW_PROOF)).expect("load show proof failed");
-    // Reuse show_vk from setup step (already in memory)
-
-    let t0 = Instant::now();
-    let show_public_values = verify_circuit_with_loaded_data(&show_proof, &show_vk);
-    let verify_show_ms = t0.elapsed().as_millis();
-    println!("✓ Show proof verified: {} ms", verify_show_ms);
-    if !show_public_values.is_empty() {
-        // println!("Show public IO: {:?}", show_public_values);
-        let age_above_18 = show_public_values[0] == Field::ONE;
-        println!("  ageAbove18: {}\n", age_above_18);
-    }
-
-    // Measure file sizes
-    info!("Measuring artifact sizes...");
-    let prepare_proving_key_bytes =
-        get_file_size(&path_config.key_path(PREPARE_PROVING_KEY).to_string_lossy());
-    let prepare_verifying_key_bytes = get_file_size(
-        &path_config
-            .key_path(PREPARE_VERIFYING_KEY)
-            .to_string_lossy(),
-    );
-    let show_proving_key_bytes =
-        get_file_size(&path_config.key_path(SHOW_PROVING_KEY).to_string_lossy());
-    let show_verifying_key_bytes =
-        get_file_size(&path_config.key_path(SHOW_VERIFYING_KEY).to_string_lossy());
-    let prepare_proof_bytes =
-        get_file_size(&path_config.artifact_path(PREPARE_PROOF).to_string_lossy());
-    let show_proof_bytes = get_file_size(&path_config.artifact_path(SHOW_PROOF).to_string_lossy());
-    let prepare_witness_bytes =
-        get_file_size(&path_config.artifact_path(PREPARE_WITNESS).to_string_lossy());
-    let show_witness_bytes =
-        get_file_size(&path_config.artifact_path(SHOW_WITNESS).to_string_lossy());
-
-    BenchmarkResults {
-        prepare_setup_ms,
-        show_setup_ms,
-        generate_blinds_ms,
-        prove_prepare_ms,
-        reblind_prepare_ms,
-        prove_show_ms,
-        reblind_show_ms,
-        verify_prepare_ms,
-        verify_show_ms,
-        prepare_proving_key_bytes,
-        prepare_verifying_key_bytes,
-        show_proving_key_bytes,
-        show_verifying_key_bytes,
-        prepare_proof_bytes,
-        show_proof_bytes,
-        prepare_witness_bytes,
-        show_witness_bytes,
-    }
-}
-
 fn execute_prepare(action: CircuitAction, options: CommandOptions) {
-    let path_config = PathConfig::development();
+    let path_config = options.path_config();
 
     match action {
         CircuitAction::Setup => {
-            info!(
-                input = ?options.input,
-                "Setting up Spartan-2 keys for the Prepare circuit"
-            );
+            info!(input = ?options.input, size = %path_config.circuit_size, "Setting up keys for Prepare");
             let circuit = PrepareCircuit::new(path_config.clone(), options.input.clone());
             setup_circuit_keys(
                 circuit,
@@ -428,12 +562,12 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Run => {
             let circuit = PrepareCircuit::new(path_config, options.input.clone());
-            info!("Running Prepare circuit with ZK-Spartan");
+            info!("Running Prepare circuit");
             run_circuit(circuit);
         }
         CircuitAction::Prove => {
             let circuit = PrepareCircuit::new(path_config.clone(), options.input.clone());
-            info!("Proving Prepare circuit with ZK-Spartan");
+            info!("Proving Prepare circuit");
             prove_circuit(
                 circuit,
                 path_config.key_path(PREPARE_PROVING_KEY),
@@ -443,16 +577,15 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
             );
         }
         CircuitAction::Verify => {
-            info!("Verifying Prepare proof with ZK-Spartan");
+            info!("Verifying Prepare proof");
             let _public_values = verify_circuit(
                 path_config.artifact_path(PREPARE_PROOF),
                 path_config.key_path(PREPARE_VERIFYING_KEY),
             );
         }
         CircuitAction::Reblind => {
-            info!("Reblind Spartan sumcheck + Hyrax PCS Prepare");
+            info!("Reblinding Prepare proof");
             reblind(
-                PrepareCircuit::default(),
                 path_config.key_path(PREPARE_PROVING_KEY),
                 path_config.artifact_path(PREPARE_INSTANCE),
                 path_config.artifact_path(PREPARE_WITNESS),
@@ -461,23 +594,23 @@ fn execute_prepare(action: CircuitAction, options: CommandOptions) {
             );
         }
         CircuitAction::GenerateSharedBlinds => {
-            info!("Generating shared blinds for Spartan-2 circuits");
+            info!("Generating shared blinds");
             generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
         }
         CircuitAction::Benchmark => {
-            let results = run_complete_pipeline(options.input);
+            let results = run_complete_pipeline(path_config, options.input);
             results.print_summary();
         }
     }
 }
 
 fn execute_show(action: CircuitAction, options: CommandOptions) {
-    let path_config = PathConfig::development();
+    let path_config = options.path_config();
 
     match action {
         CircuitAction::Setup => {
-            info!(input = ?options.input, "Setting up Spartan-2 keys for the Show circuit");
-            let circuit = ShowCircuit::new(path_config.clone(), options.input.clone());
+            info!(size = %path_config.circuit_size, "Setting up keys for Show");
+            let circuit = ShowCircuit::new(path_config.clone(), None);
             setup_circuit_keys(
                 circuit,
                 path_config.key_path(SHOW_PROVING_KEY),
@@ -486,12 +619,12 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
         }
         CircuitAction::Run => {
             let circuit = ShowCircuit::new(path_config, options.input.clone());
-            info!("Running Show circuit with ZK-Spartan");
+            info!("Running Show circuit");
             run_circuit(circuit);
         }
         CircuitAction::Prove => {
             let circuit = ShowCircuit::new(path_config.clone(), options.input.clone());
-            info!("Proving Show circuit with ZK-Spartan");
+            info!("Proving Show circuit");
             prove_circuit(
                 circuit,
                 path_config.key_path(SHOW_PROVING_KEY),
@@ -501,21 +634,19 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
             );
         }
         CircuitAction::Verify => {
-            info!("Verifying Show proof with ZK-Spartan");
+            info!("Verifying Show proof");
             let public_values = verify_circuit(
                 path_config.artifact_path(SHOW_PROOF),
                 path_config.key_path(SHOW_VERIFYING_KEY),
             );
-            // Show public IO: [ageAbove18, deviceKeyX, deviceKeyY]
             if !public_values.is_empty() {
                 let age_above_18 = public_values[0] == Field::ONE;
                 println!("ageAbove18: {} (raw: {:?})", age_above_18, public_values[0]);
             }
         }
         CircuitAction::Reblind => {
-            info!("Reblind Spartan sumcheck + Hyrax PCS Show");
+            info!("Reblinding Show proof");
             reblind(
-                ShowCircuit::default(),
                 path_config.key_path(SHOW_PROVING_KEY),
                 path_config.artifact_path(SHOW_INSTANCE),
                 path_config.artifact_path(SHOW_WITNESS),
@@ -528,7 +659,7 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
             process::exit(1);
         }
         CircuitAction::Benchmark => {
-            let results = run_complete_pipeline(options.input);
+            let results = run_complete_pipeline(path_config, options.input);
             results.print_summary();
         }
     }
@@ -547,10 +678,49 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         "prepare" => parse_circuit_command(CircuitKind::Prepare, &args[1..]),
         "show" => parse_circuit_command(CircuitKind::Show, &args[1..]),
         "benchmark" => Ok(ParsedCommand {
-            circuit: CircuitKind::Prepare, // Benchmark runs both circuits, but we need to pick one for the enum
+            circuit: CircuitKind::Prepare,
             action: CircuitAction::Benchmark,
             options: parse_options(&args[1..])?,
         }),
+
+        "benchmark-all" => {
+            if let Some(unknown) = args
+                .get(1)
+                .filter(|a| !a.starts_with('-') || *a != "--help")
+            {
+                if unknown != "--help" && unknown != "-h" {
+                    return Err(format!("benchmark-all takes no options, got: {}", unknown));
+                }
+            }
+
+            let mut all_results: Vec<BenchmarkResults> = Vec::new();
+
+            println!("\n╔════════════════════════════════════════════════════╗");
+            println!("║      BENCHMARK-ALL: prove + reblind + verify        ║");
+            println!("╚════════════════════════════════════════════════════╝\n");
+
+            for size in CircuitSize::ALL {
+                let pc = PathConfig::development_with_size(size);
+                println!("─── Size: {} ─────────────────────────────────────", size);
+                match run_prove_pipeline(&pc, None) {
+                    Ok(r) => {
+                        r.print_summary();
+                        all_results.push(r);
+                    }
+                    Err(e) => {
+                        eprintln!("  ✗ Skipping size {}: {}\n", size, e);
+                    }
+                }
+            }
+
+            if all_results.len() > 1 {
+                println!("═══ COMPARISON TABLE ══════════════════════════════");
+                print_comparison_table(&all_results);
+            }
+
+            process::exit(0);
+        }
+
         "setup_prepare" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Setup,
@@ -574,27 +744,27 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         "verify_prepare" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Verify,
-            options: ensure_no_options(&args[1..])?,
+            options: parse_options_size_only(&args[1..])?,
         }),
         "verify_show" => Ok(ParsedCommand {
             circuit: CircuitKind::Show,
             action: CircuitAction::Verify,
-            options: ensure_no_options(&args[1..])?,
+            options: parse_options_size_only(&args[1..])?,
         }),
         "reblind_prepare" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Reblind,
-            options: ensure_no_options(&args[1..])?,
+            options: parse_options_size_only(&args[1..])?,
         }),
         "reblind_show" => Ok(ParsedCommand {
             circuit: CircuitKind::Show,
             action: CircuitAction::Reblind,
-            options: ensure_no_options(&args[1..])?,
+            options: parse_options_size_only(&args[1..])?,
         }),
         "generate_shared_blinds" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::GenerateSharedBlinds,
-            options: ensure_no_options(&args[1..])?,
+            options: parse_options_size_only(&args[1..])?,
         }),
         other => Err(format!("Unknown command '{other}'")),
     }
@@ -611,26 +781,24 @@ fn parse_circuit_command(circuit: CircuitKind, tail: &[String]) -> Result<Parsed
 
     let first = &tail[0];
     let (action, option_start) = match first.as_str() {
-        "run" => (CircuitAction::Run, 1),
-        "setup" => (CircuitAction::Setup, 1),
-        "prove" => (CircuitAction::Prove, 1),
-        "verify" => (CircuitAction::Verify, 1),
-        "reblind" => (CircuitAction::Reblind, 1),
-        "generate_shared_blinds" => (CircuitAction::GenerateSharedBlinds, 1),
-        "benchmark" => (CircuitAction::Benchmark, 1),
+        "run"                   => (CircuitAction::Run, 1),
+        "setup"                 => (CircuitAction::Setup, 1),
+        "prove"                 => (CircuitAction::Prove, 1),
+        "verify"                => (CircuitAction::Verify, 1),
+        "reblind"               => (CircuitAction::Reblind, 1),
+        "generate_shared_blinds"=> (CircuitAction::GenerateSharedBlinds, 1),
+        "benchmark"             => (CircuitAction::Benchmark, 1),
         s if s.starts_with('-') => (CircuitAction::Run, 0),
         other => {
             return Err(format!(
-                "Unknown action '{other}' for {:?}. Expected one of run|setup|prove|verify|reblind|generate_shared_blinds|benchmark.",
+                "Unknown action '{other}' for {:?}. Expected: run|setup|prove|verify|reblind|generate_shared_blinds|benchmark.",
                 circuit
             ))
         }
     };
 
     if action == CircuitAction::GenerateSharedBlinds && circuit != CircuitKind::Prepare {
-        return Err(
-            "The generate_shared_blinds action is only supported for the Prepare circuit".into(),
-        );
+        return Err("generate_shared_blinds is only supported for the Prepare circuit".into());
     }
 
     let options_slice = &tail[option_start..];
@@ -640,7 +808,7 @@ fn parse_circuit_command(circuit: CircuitKind, tail: &[String]) -> Result<Parsed
         | CircuitAction::Setup
         | CircuitAction::Benchmark => parse_options(options_slice)?,
         CircuitAction::Verify | CircuitAction::Reblind | CircuitAction::GenerateSharedBlinds => {
-            ensure_no_options(options_slice)?
+            parse_options_size_only(options_slice)?
         }
     };
 
@@ -651,71 +819,127 @@ fn parse_circuit_command(circuit: CircuitKind, tail: &[String]) -> Result<Parsed
     })
 }
 
-fn ensure_no_options(args: &[String]) -> Result<CommandOptions, String> {
-    if args.is_empty() {
-        Ok(CommandOptions::default())
-    } else {
-        Err(format!("Unexpected options: {}", args.join(" ")))
+fn parse_options(args: &[String]) -> Result<CommandOptions, String> {
+    let mut opts = CommandOptions::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--input" | "-i" => {
+                i += 1;
+                opts.input = Some(PathBuf::from(
+                    args.get(i).ok_or("Missing value for --input")?,
+                ));
+            }
+            "--size" | "-s" => {
+                i += 1;
+                opts.size = Some(
+                    args.get(i)
+                        .ok_or("Missing value for --size")?
+                        .parse::<CircuitSize>()
+                        .map_err(|e| format!("Invalid --size: {e}"))?,
+                );
+            }
+            s if s.starts_with("--input=") => {
+                let v = &s["--input=".len()..];
+                if v.is_empty() {
+                    return Err("Missing value for --input".into());
+                }
+                opts.input = Some(PathBuf::from(v));
+            }
+            s if s.starts_with("--size=") => {
+                let v = &s["--size=".len()..];
+                opts.size = Some(
+                    v.parse::<CircuitSize>()
+                        .map_err(|e| format!("Invalid --size: {e}"))?,
+                );
+            }
+            "--help" | "-h" => {
+                print_usage();
+                process::exit(0);
+            }
+            other => return Err(format!("Unknown option '{other}'")),
+        }
+        i += 1;
     }
+    Ok(opts)
 }
 
-fn parse_options(args: &[String]) -> Result<CommandOptions, String> {
-    let mut options = CommandOptions::default();
-    let mut index = 0;
-
-    while index < args.len() {
-        let arg = &args[index];
-        if arg == "--input" || arg == "-i" {
-            index += 1;
-            let value = args
-                .get(index)
-                .ok_or_else(|| "Missing value for --input".to_string())?;
-            options.input = Some(PathBuf::from(value));
-        } else if let Some(value) = arg.strip_prefix("--input=") {
-            if value.is_empty() {
-                return Err("Missing value for --input".into());
+fn parse_options_size_only(args: &[String]) -> Result<CommandOptions, String> {
+    let mut opts = CommandOptions::default();
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--size" | "-s" => {
+                i += 1;
+                opts.size = Some(
+                    args.get(i)
+                        .ok_or("Missing value for --size")?
+                        .parse::<CircuitSize>()
+                        .map_err(|e| format!("Invalid --size: {e}"))?,
+                );
             }
-            options.input = Some(PathBuf::from(value));
-        } else if arg == "--help" || arg == "-h" {
-            print_usage();
-            process::exit(0);
-        } else {
-            return Err(format!("Unknown option '{arg}'"));
+            s if s.starts_with("--size=") => {
+                let v = &s["--size=".len()..];
+                opts.size = Some(
+                    v.parse::<CircuitSize>()
+                        .map_err(|e| format!("Invalid --size: {e}"))?,
+                );
+            }
+            "--help" | "-h" => {
+                print_usage();
+                process::exit(0);
+            }
+            other => return Err(format!("Unknown option '{other}'")),
         }
-        index += 1;
+        i += 1;
     }
-
-    Ok(options)
+    Ok(opts)
 }
 
 fn print_usage() {
     eprintln!(
         "Usage:
-  ecdsa-spartan2 <prepare|show> [run|setup|prove|verify] [options]
-  ecdsa-spartan2 benchmark [options]
+  ecdsa-spartan2 <prepare|show> [run|setup|prove|verify|reblind|benchmark] [options]
+  ecdsa-spartan2 benchmark      [options]
+  ecdsa-spartan2 benchmark-all
 
 Commands:
-  benchmark            Run complete pipeline with full metrics (setup, prove, reblind, verify)
-  prepare <action>     Run action on Prepare circuit
-  show <action>        Run action on Show circuit
+  benchmark         Full pipeline (setup+prove+reblind+verify) for one size
+  benchmark-all     Prove+reblind+verify across ALL compiled sizes, print comparison table
+  prepare <action>  Run action on Prepare circuit
+  show    <action>  Run action on Show circuit
 
 Actions:
-  run                  Run the complete circuit (setup, prove, verify)
-  setup                Generate proving and verifying keys
-  prove                Generate proof
-  verify               Verify proof
-  reblind              Reblind proof
-  benchmark            Run complete benchmark pipeline
+  run               Run circuit (setup, prove, verify)
+  setup             Generate proving and verifying keys
+  prove             Generate proof
+  verify            Verify proof
+  reblind           Reblind proof
+  benchmark         Full benchmark pipeline for this circuit
 
 Options:
-  --input, -i <path>   Override the circuit input JSON (run/prove/setup/benchmark)
+  --size, -s <sz>   Circuit size: 1k | 2k | 4k | 8k  (default: 1k)
+  --input, -i <p>   Override JWT input JSON path (prepare run/prove/setup/benchmark)
 
-Examples:
-  cargo run --release -- benchmark --input ../circom/inputs/jwt/generated.json
-  cargo run --release -- prepare run --input ../circom/inputs/jwt/generated.json
-  cargo run --release -- show prove --input ../circom/inputs/show/generated.json
-  cargo run --release -- show verify
+Typical workflow:
+  # 1. Compile circuits (Circom side)
+  cd ../circom && yarn compile:jwt:all-sizes
 
-Legacy commands like `prepare`, `show`, `prove_prepare`, etc. are still supported."
+  # 2. Generate inputs for each size
+  yarn generate:inputs --all
+
+  # 3. Generate setup keys (one-time, slow)
+  cargo run --release -- prepare setup --size 1k
+  cargo run --release -- show    setup --size 1k
+  # repeat for 2k, 4k, 8k
+
+  # 4. Benchmark all sizes (fast: prove+reblind+verify only)
+  cargo run --release -- benchmark-all
+
+  # 5. Full single-size benchmark (includes setup timing)
+  cargo run --release -- benchmark --size 2k
+
+Legacy commands: prove_prepare, prove_show, setup_prepare, setup_show,
+verify_prepare, verify_show, reblind_prepare, reblind_show, generate_shared_blinds"
     );
 }
