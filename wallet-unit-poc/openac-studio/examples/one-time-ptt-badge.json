@@ -1,0 +1,24 @@
+{
+  "name": "One-time PTT Badge Verification",
+  "description": "Physical badge tap at a gate – one-time, device-bound, off-chain verification.",
+  "scenario": {
+    "presentationFrequency": "one_time",
+    "verifierTopology": "single_verifier",
+    "unlinkabilityGoal": "none",
+    "antiReplay": "nonce_only",
+    "deviceBinding": "required",
+    "verificationTarget": "offchain",
+    "credentialFormat": "sd_jwt",
+    "revocationHandling": "none",
+    "notes": "Physical badge tap at a gate – one-time, device-bound, off-chain."
+  },
+  "expectedModules": [
+    "prepare_show_split",
+    "issuer_sig_verify",
+    "attribute_commitments",
+    "selective_disclosure",
+    "verifier_challenge_nonce",
+    "device_binding",
+    "offchain_verify"
+  ]
+}
