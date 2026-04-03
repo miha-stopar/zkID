@@ -8,7 +8,7 @@
     "url": "https://github.com/privacy-scaling-explorations/zkID"
   },
   "scripts": {
-    "test": "NODE_OPTIONS=--max-old-space-size=16384 npx mocha --timeout 900000",
+    "test": "NODE_OPTIONS=--max-old-space-size=16384 tsx ./node_modules/mocha/bin/mocha.js --no-config --extension ts --timeout 900000 \"tests/**/*.test.ts\"",
     "save_input_file": "npx ts-node src/save_inputs.ts",
     "compile:jwt": "bash scripts/compile.sh jwt",
     "compile:show": "bash scripts/compile.sh show",
@@ -46,6 +46,7 @@
     "@types/mocha": "^10.0.1",
     "@types/node": "^20.3.0",
     "ts-node": "^10.9.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.1.3"
   },
   "packageManager": "yarn@4.13.0"

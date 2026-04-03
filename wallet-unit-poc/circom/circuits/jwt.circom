@@ -7,8 +7,15 @@ include "components/claim-decoder.circom";
 include "utils/utils.circom";
 include "components/payload_matcher.circom";
 include "components/ec-extractor.circom";
-include "components/age-verifier.circom";
+include "components/claim-value-extractor.circom";
+include "components/claim-value-normalizer.circom";
 
+/// @title JWT
+/// @notice Verifies an ES256-signed SD-JWT and extracts normalized claim values.
+/// @notice match slots 0 and 1 are reserved for device binding key extraction (x/y patterns).
+/// @notice Claim arrays are claim-only and map directly to normalizedClaimValues.
+/// @output normalizedClaimValues: one integer per claim slot; 0 for undecoded slots.
+/// @output KeyBindingX, KeyBindingY: extracted device binding public key coordinates.
 template JWT(
     maxMessageLength,
     maxB64PayloadLength,
@@ -16,8 +23,11 @@ template JWT(
     maxSubstringLength,
     maxClaimsLength
 ) {
+    assert(maxMatches >= 2);
+    var maxClaims = maxMatches - 2;
     var decodedLen = (maxClaimsLength * 3) / 4;
     var maxPayloadLength = (maxB64PayloadLength * 3) / 4;
+    var maxValueLen = decodedLen;
 
     signal input message[maxMessageLength];
     signal input messageLength;
@@ -33,18 +43,30 @@ template JWT(
     signal input matchLength[maxMatches];
     signal input matchIndex[maxMatches];
 
-    signal input claims[maxMatches][maxClaimsLength];
-    signal input claimLengths[maxMatches];
-    signal input decodeFlags[maxMatches];
-    signal input ageClaimIndex;
+    signal input claims[maxClaims][maxClaimsLength];
+    signal input claimLengths[maxClaims];
+    // decodeFlags[i] = 1 if claim slot i should be decoded and normalized, 0 otherwise.
+    signal input decodeFlags[maxClaims];
+    // claimFormats[i]: format for normalizing claim slot i (0=bool,1=uint,2=iso_date,3=roc_date,4=string).
+    // Only meaningful when decodeFlags[i] = 1.
+    signal input claimFormats[maxClaims];
 
-    signal decodedClaims[maxMatches][decodedLen] <== ClaimDecoder(maxMatches, maxClaimsLength)(claims, claimLengths, decodeFlags);
-    signal claimHashes[maxMatches][32] <== ClaimHasher(maxMatches, maxClaimsLength)(claims);
-    
+    signal decodedClaims[maxClaims][decodedLen] <== ClaimDecoder(maxClaims, maxClaimsLength)(claims, claimLengths, decodeFlags);
+    signal claimHashes[maxClaims][32] <== ClaimHasher(maxClaims, maxClaimsLength)(claims);
+
+    signal claimMatchSubstring[maxClaims][maxSubstringLength];
+    signal claimMatchLength[maxClaims];
+    for (var i = 0; i < maxClaims; i++) {
+        for (var j = 0; j < maxSubstringLength; j++) {
+            claimMatchSubstring[i][j] <== matchSubstring[i + 2][j];
+        }
+        claimMatchLength[i] <== matchLength[i + 2];
+    }
+
     // Compare the claim hashes with the match substrings
-    ClaimComparator(maxMatches, maxSubstringLength)(claimHashes ,claimLengths, matchSubstring, matchLength);
+    ClaimComparator(maxClaims, maxSubstringLength)(claimHashes, claimLengths, claimMatchSubstring, claimMatchLength);
 
-    // Verify the signature
+    // Verify the issuer signature
     ES256(maxMessageLength)(message, messageLength, sig_r, sig_s_inverse, pubKeyX, pubKeyY);
 
     // Extract the payload
@@ -63,20 +85,32 @@ template JWT(
         matchIndex
     );
 
-    // Extract the device binding public key
+    // Extract the device binding public key from the payload
     component ecExtractor = ECPublicKeyExtractor_Optimized(maxPayloadLength, 32);
     ecExtractor.payload <== payload;
     ecExtractor.xStartIndex <== matchIndex[0] + matchLength[0];
     ecExtractor.yStartIndex <== matchIndex[1] + matchLength[1];
 
-    component ageSelector = Multiplexer(decodedLen, maxMatches);
-    ageSelector.sel <== ageClaimIndex;
-    ageSelector.inp <== decodedClaims;
+    // Extract and normalize claim values.
+    // Claim arrays are claim-only. Each claim is extracted and normalized when decodeFlags[i]=1.
+    component claimExtractors[maxClaims];
+    component claimNormalizers[maxClaims];
+    signal output normalizedClaimValues[maxClaims];
 
-    // Output the age claim
-    signal output ageClaim[decodedLen] <== ageSelector.out;
-    
-    // Output the key binding public key
+    for (var i = 0; i < maxClaims; i++) {
+        claimExtractors[i] = ClaimValueExtractor(decodedLen);
+        claimExtractors[i].claim    <== decodedClaims[i];
+        claimExtractors[i].isActive <== decodeFlags[i];
+
+        claimNormalizers[i] = ClaimValueNormalizer(maxValueLen);
+        claimNormalizers[i].value       <== claimExtractors[i].value;
+        claimNormalizers[i].valueLength <== claimExtractors[i].valueLength;
+        claimNormalizers[i].format      <== claimFormats[i];
+
+        normalizedClaimValues[i] <== claimNormalizers[i].normalizedValue;
+    }
+
+    // Output the device binding public key
     signal output KeyBindingX <== ecExtractor.pubKeyX;
     signal output KeyBindingY <== ecExtractor.pubKeyY;
 }

@@ -5,9 +5,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { p256 } from "@noble/curves/nist.js";
 import { sha256 } from "@noble/hashes/sha2";
-import { JwkEcdsaPublicKey } from "./es256";
-import { generateJwtCircuitParams, generateJwtInputs, JwtCircuitParams } from "./jwt";
-import { base64ToBigInt, base64urlToBase64, bigintToBase64url, pointToJwk, generateDidKey } from "./utils";
+import type { JwkEcdsaPublicKey } from "./es256.ts";
+import { generateJwtCircuitParams, generateJwtInputs } from "./jwt.ts";
+import type { JwtCircuitParams } from "./jwt.ts";
+import { base64ToBigInt, base64urlToBase64, bigintToBase64url, pointToJwk, generateDidKey } from "./utils.ts";
 
 interface PublicKeyConfig {
   kty: string;
@@ -97,7 +98,6 @@ export interface MockDataOptions {
   subject?: string;
   issuer?: string;
   matches?: string[];
-  decodeFlags?: number[];
   kid?: string;
 }
 
@@ -131,8 +131,10 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
 
   const claimStrings = claims.map((claim) => generateClaim(claim.key, claim.value));
 
+  const claimMaxLength = options.circuitParams?.[4] ?? 128;
   const hashedClaims = claimStrings.map((claim) => {
-    return Buffer.from(sha256(Buffer.from(claim, "utf8"))).toString("base64url");
+    const claimBytes = Uint8Array.from(Buffer.from(claim, "utf8"));
+    return Buffer.from(sha256(claimBytes)).toString("base64url");
   });
 
   const header = {
@@ -193,18 +195,13 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
   }
 
   const matches = options.matches || hashedClaims;
-  const decodeFlags = options.decodeFlags || new Array(claims.length).fill(0);
-  if (decodeFlags.length !== claims.length) {
-    throw new Error(`decodeFlags length (${decodeFlags.length}) must match claims length (${claims.length})`);
-  }
 
   const circuitInputs = generateJwtInputs(
     circuitParams,
     token,
     issuerKeyData.publicKey,
     matches,
-    claimStrings,
-    decodeFlags
+    claimStrings
   );
 
   return {

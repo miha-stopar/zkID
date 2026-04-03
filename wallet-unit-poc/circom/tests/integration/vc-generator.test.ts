@@ -1,6 +1,6 @@
-import { WitnessTester } from "circomkit";
-import { generateMockData, verifyJWTSignature } from "../../src/mock-vc-generator";
-import { circomkit } from "../common";
+import type { WitnessTester } from "circomkit";
+import { generateMockData, verifyJWTSignature } from "../../src/mock-vc-generator.ts";
+import { circomkit } from "../common/index.ts";
 import assert from "assert";
 
 describe("VC Mock Data Generator - Circuit Tests", () => {
@@ -19,9 +19,10 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
       "matchIndex",
       "claims",
       "claimLengths",
-      "decodeFlags"
+        "decodeFlags",
+        "claimFormats"
     ],
-    ["KeyBindingX", "KeyBindingY", "messages"]
+      ["KeyBindingX", "KeyBindingY", "normalizedClaimValues"]
   >;
 
   before(async () => {
@@ -29,7 +30,7 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
     circuit = await circomkit.WitnessTester(`JWT`, {
       file: "jwt",
       template: "JWT",
-      params: [2048, 2000, 4, 50, 128],
+        params: [2048, 2000, 4, 50, 128],
       recompile: RECOMPILE,
     });
     console.log("#constraints:", await circuit.getConstraintCount());
