@@ -1,5 +1,7 @@
 export interface OpenACConfig {
   wasmPath?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wasmModule?: any;
   assetsDir?: string;
   artifacts?: CircuitArtifacts;
   memory?: { initial?: number; maximum?: number };
@@ -240,4 +242,81 @@ export interface ShowCircuitInputs {
   currentYear: bigint;
   currentMonth: bigint;
   currentDay: bigint;
+}
+
+export interface PrecomputeRequest {
+  jwt: string;
+  disclosures: string[];
+  issuerPublicKey: IssuerPublicKey;
+  keys: KeySet;
+  jwtParams?: JwtCircuitParams;
+  birthdayClaimIndex?: number;
+  decodeFlags?: number[];
+  additionalMatches?: string[];
+}
+
+export interface SerializedCredential {
+  jwt: string;
+  disclosures: string[];
+  deviceBindingKey: EcdsaPublicKey;
+}
+
+export interface PrecomputedCredential {
+  prepareProof: Uint8Array;
+  prepareInstance: Uint8Array;
+  prepareWitness: Uint8Array;
+  credential: SerializedCredential;
+  birthdayClaimIndex: number;
+  birthdayClaim: string;
+  deviceKey: EcdsaPublicKey;
+  timing: PrecomputeTiming;
+  serialize(): Uint8Array;
+  toJSON(): SerializedPrecomputedCredentialJSON;
+}
+
+export interface PrecomputeTiming {
+  parseCredentialMs: number;
+  buildInputsMs: number;
+  prepareWitnessMs: number;
+  prepareProveMs: number;
+  totalMs: number;
+}
+
+export interface SerializedPrecomputedCredentialJSON {
+  version: string;
+  prepareProof: string;
+  prepareInstance: string;
+  prepareWitness: string;
+  credential: SerializedCredential;
+  birthdayClaimIndex: number;
+  birthdayClaim: string;
+  deviceKey: EcdsaPublicKey;
+}
+
+export interface PresentRequest {
+  precomputed: PrecomputedCredential;
+  verifierNonce: string;
+  devicePrivateKey: EcdsaPrivateKey;
+  keys: KeySet;
+  currentDate?: Date;
+  showParams?: ShowCircuitParams;
+}
+
+export interface PresentationProof {
+  prepareProof: Uint8Array;
+  prepareInstance: Uint8Array;
+  showProof: Uint8Array;
+  showInstance: Uint8Array;
+  publicValues: ProofPublicValues;
+  timing: PresentationTiming;
+  serialize(): Uint8Array;
+  toBase64(): string;
+  toJSON(): SerializedProofJSON;
+}
+
+export interface PresentationTiming {
+  showWitnessMs: number;
+  showProveMs: number;
+  presentMs: number;
+  totalMs: number;
 }

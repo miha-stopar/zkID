@@ -1,4 +1,4 @@
-import { WasmBridge } from "./wasm-bridge.js";
+import { WasmBridge, VcSize } from "./wasm-bridge.js";
 import { WitnessCalculator } from "./witness-calculator.js";
 import { Prover } from "./prover.js";
 import { Verifier } from "./verifier.js";
@@ -11,6 +11,10 @@ import type {
   KeySet,
   SerializedKeySet,
   SerializedProof,
+  PrecomputeRequest,
+  PrecomputedCredential,
+  PresentRequest,
+  PresentationProof,
 } from "./types.js";
 
 export class OpenAC {
@@ -33,7 +37,15 @@ export class OpenAC {
 
   static async init(config: OpenACConfig = {}): Promise<OpenAC> {
     const bridge = new WasmBridge();
-    await bridge.init(config.wasmPath);
+
+    if (config.wasmModule) {
+      if (typeof config.wasmModule.default === "function") {
+        await config.wasmModule.default();
+      }
+      bridge.initWithModule(config.wasmModule);
+    } else {
+      await bridge.init(config.wasmPath);
+    }
 
     // Initialize WitnessCalculator if assetsDir is provided or use default
     let witnessCalculator: WitnessCalculator | undefined;
@@ -51,13 +63,14 @@ export class OpenAC {
     return new OpenAC(bridge, prover, verifier, config);
   }
 
-  async setup(): Promise<KeySet> {
-    const [prepareKeys, showKeys] = await Promise.all([
-      this.bridge.setupPrepare(),
-      this.bridge.setupShow(),
-    ]);
-
-    return createKeySet(prepareKeys.pk, prepareKeys.vk, showKeys.pk, showKeys.vk);
+  async loadKeysFromUrl(baseUrl: string, vcSize: VcSize): Promise<KeySet> {
+    const keys = await this.bridge.loadKeys(baseUrl, vcSize);
+    return createKeySet(
+      keys.preparePk,
+      keys.prepareVk,
+      keys.showPk,
+      keys.showVk,
+    );
   }
 
   async loadKeys(data: SerializedKeySet): Promise<KeySet> {
@@ -65,7 +78,28 @@ export class OpenAC {
       data.prepareProvingKey,
       data.prepareVerifyingKey,
       data.showProvingKey,
-      data.showVerifyingKey
+      data.showVerifyingKey,
+    );
+  }
+
+  async precompute(request: PrecomputeRequest): Promise<PrecomputedCredential> {
+    return this.prover.precompute(request);
+  }
+
+  async present(request: PresentRequest): Promise<PresentationProof> {
+    return this.prover.present(request);
+  }
+
+  async verify(
+    proof: PresentationProof,
+    keys: VerifyingKeys,
+  ): Promise<VerificationResult> {
+    return this.verifier.verifyComponents(
+      proof.prepareProof,
+      proof.showProof,
+      keys,
+      proof.prepareInstance,
+      proof.showInstance,
     );
   }
 
@@ -73,7 +107,10 @@ export class OpenAC {
     return this.prover.createProof(request);
   }
 
-  async verifyProof(proof: SerializedProof, keys: VerifyingKeys): Promise<VerificationResult> {
+  async verifyProof(
+    proof: SerializedProof,
+    keys: VerifyingKeys,
+  ): Promise<VerificationResult> {
     return this.verifier.verifyProof(proof, keys);
   }
 
@@ -82,9 +119,15 @@ export class OpenAC {
     showProof: Uint8Array,
     keys: VerifyingKeys,
     prepareInstance: Uint8Array,
-    showInstance: Uint8Array
+    showInstance: Uint8Array,
   ): Promise<VerificationResult> {
-    return this.verifier.verifyComponents(prepareProof, showProof, keys, prepareInstance, showInstance);
+    return this.verifier.verifyComponents(
+      prepareProof,
+      showProof,
+      keys,
+      prepareInstance,
+      showInstance,
+    );
   }
 
   get isReady(): boolean {
@@ -96,7 +139,7 @@ function createKeySet(
   prepareProvingKey: Uint8Array,
   prepareVerifyingKey: Uint8Array,
   showProvingKey: Uint8Array,
-  showVerifyingKey: Uint8Array
+  showVerifyingKey: Uint8Array,
 ): KeySet {
   return {
     prepareProvingKey,
@@ -109,20 +152,28 @@ function createKeySet(
     },
 
     serialize(): SerializedKeySet {
-      return { prepareProvingKey, prepareVerifyingKey, showProvingKey, showVerifyingKey };
+      return {
+        prepareProvingKey,
+        prepareVerifyingKey,
+        showProvingKey,
+        showVerifyingKey,
+      };
     },
   };
 }
 
 // Re-exports
 export { Credential } from "./credential.js";
-export { Prover } from "./prover.js";
+export { Prover, deserializePrecomputed } from "./prover.js";
 export { Verifier } from "./verifier.js";
 export { WitnessCalculator } from "./witness-calculator.js";
 export { NativeBackend } from "./native-backend.js";
 export type { NativeBackendConfig } from "./native-backend.js";
 export { buildJwtCircuitInputs } from "./inputs/jwt-input-builder.js";
-export { buildShowCircuitInputs, signDeviceNonce } from "./inputs/show-input-builder.js";
+export {
+  buildShowCircuitInputs,
+  signDeviceNonce,
+} from "./inputs/show-input-builder.js";
 
 export {
   OpenACError,
@@ -156,6 +207,14 @@ export type {
   ShowCircuitInputs,
   CircuitArtifacts,
   ErrorCode,
+  PrecomputeRequest,
+  PrecomputedCredential,
+  PrecomputeTiming,
+  PresentRequest,
+  PresentationProof,
+  PresentationTiming,
+  SerializedCredential,
+  SerializedPrecomputedCredentialJSON,
 } from "./types.js";
 
 export {

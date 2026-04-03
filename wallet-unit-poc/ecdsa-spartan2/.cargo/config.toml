@@ -1,0 +1,5 @@
+# Disable native-witness by default to avoid GMP dependency
+# Use: cargo build --features native-witness to enable it when GMP is available
+
+[build]
+default-features = false

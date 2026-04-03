@@ -1,0 +1,25 @@
+{
+  "name": "Repeat Presentations (Buy Alcohol)",
+  "description": "Age check at different stores – must be unlinkable across verifiers, with nullifier anti-replay.",
+  "scenario": {
+    "presentationFrequency": "repeat",
+    "verifierTopology": "multi_verifier_possible_collusion",
+    "unlinkabilityGoal": "cross_verifiers",
+    "antiReplay": "nullifier",
+    "deviceBinding": "recommended",
+    "verificationTarget": "offchain",
+    "credentialFormat": "sd_jwt",
+    "revocationHandling": "out_of_band",
+    "notes": "Age check at different stores – must be unlinkable across verifiers."
+  },
+  "expectedModules": [
+    "prepare_show_split",
+    "issuer_sig_verify",
+    "attribute_commitments",
+    "selective_disclosure",
+    "reblind_rerandomize",
+    "verifier_challenge_nonce",
+    "nullifier_antireplay",
+    "offchain_verify"
+  ]
+}

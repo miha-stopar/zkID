@@ -1,6 +1,8 @@
 export type ErrorCode =
   | "SETUP_FAILED"
+  | "SETUP_NOT_SUPPORTED"
   | "KEYS_NOT_FOUND"
+  | "KEY_LOAD_FAILED"
   | "PROOF_GENERATION_FAILED"
   | "WITNESS_GENERATION_FAILED"
   | "REBLIND_FAILED"
@@ -78,7 +80,7 @@ export class InputError extends OpenACError {
 
 export class WasmError extends OpenACError {
   constructor(
-    code: "WASM_LOAD_FAILED" | "WASM_OOM" | "WASM_NOT_INITIALIZED",
+    code: "WASM_LOAD_FAILED" | "WASM_OOM" | "WASM_NOT_INITIALIZED" | "KEY_LOAD_FAILED" | "SETUP_NOT_SUPPORTED",
     message: string,
     cause?: unknown
   ) {
