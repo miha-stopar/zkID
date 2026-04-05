@@ -266,4 +266,3 @@ template EvalLogicPostfix(MAX_TOKENS, MAX_PREDICATES) {
     out <== stack[MAX_TOKENS][0];
     out * (out - 1) === 0;
 }
-
