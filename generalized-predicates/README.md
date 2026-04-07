@@ -275,7 +275,7 @@ Logical expression (postfix notation):
 
 $L = (\ell_0, \ell_1, \ldots, \ell_t)$
 
-$\ell_q \in \{r \mid r \in R\}\} \cup \{\mathrm{AND}, \mathrm{OR}, \mathrm{NOT}\}, \quad q \in \{0, \ldots, t\}$
+$\ell_q \in \{r \mid r \in R\} \cup \{\mathrm{AND}, \mathrm{OR}, \mathrm{NOT}\}, \quad q \in \{0, \ldots, t\}$
 
 The prover generates a zero knowledge proof that:
 
