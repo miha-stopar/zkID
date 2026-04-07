@@ -255,31 +255,45 @@ Only the final boolean value is revealed.
 
 Claims:
 
-$C = (c_0, c_1, \ldots, c_n)$
+$$
+C = (c_0, c_1, \ldots, c_n)
+$$
 
 Predicates:
 
-$P_i = (j_i, \mathsf{op}_i, k_i), \quad i \in \{0, \ldots, m\}, \quad j_i \in \{0, \ldots, n\}, \quad \mathsf{op}_i \in \{\le, \ge, =\}$
+$$
+P_i = (j_i, \mathsf{op}_i, k_i), \quad i \in \{0, \ldots, m\}, \quad j_i \in \{0, \ldots, n\}, \quad \mathsf{op}_i \in \{\le, \ge, =\}
+$$
 
 where $j_i$ is the claim index, and $k_i$ is the predicate constant.
 
 Predicate evaluation:
 
-$r_i = \mathsf{op}_i(c_{j_i}, k_i) \in \{0,1\}, \quad i \in \{0, \ldots, m\}$
+$$
+r_i = \mathsf{op}_i(c_{j_i}, k_i) \in \{0,1\}, \quad i \in \{0, \ldots, m\}
+$$
 
 Predicate results:
 
-$R = (r_0, r_1, \ldots, r_m)$
+$$
+R = (r_0, r_1, \ldots, r_m)
+$$
 
 Logical expression (postfix notation):
 
-$L = (\ell_0, \ell_1, \ldots, \ell_t)$
+$$
+L = (\ell_0, \ell_1, \ldots, \ell_t)
+$$
 
-$\ell_q \in \{r \mid r \in R\} \cup \{\mathrm{AND}, \mathrm{OR}, \mathrm{NOT}\}, \quad q \in \{0, \ldots, t\}$
+$$
+\ell_q \in \{r \mid r \in R\} \cup \{\mathrm{AND}, \mathrm{OR}, \mathrm{NOT}\}, \quad q \in \{0, \ldots, t\}
+$$
 
 The prover generates a zero knowledge proof that:
 
-$b = E(L), \quad b \in \{0,1\}$
+$$
+b = E(L), \quad b \in \{0,1\}
+$$
 
 without revealing $C$.
 
