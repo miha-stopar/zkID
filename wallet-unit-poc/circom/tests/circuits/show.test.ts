@@ -40,21 +40,13 @@ describe("Show Circuit - Device Binding Verification", () => {
 
   describe("Device Binding Key Verification", () => {
     it("should verify device signature on nonce matches device binding key", async () => {
-      // Step 1: Generate mock credential with device binding key
       const mockData = await generateMockData({
         circuitParams: [2048, 2000, 6, 50, 128],
       });
 
-      // Step 2: Get device binding key from credential
-      const devicePrivateKey = mockData.devicePrivateKey;
-
-      // Step 3: Verifier sends nonce/challenge
       const verifierNonce = "challenge-nonce-12345";
+      const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
 
-      // Step 4: Device signs the nonce with its private key (stored in secure element)
-      const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
-
-      // Step 5: Generate Show circuit inputs
       const params = generateShowCircuitParams(mockData.circuitParams);
       const inputs = generateShowInputs(params, verifierNonce, deviceSignature, mockData.deviceKey, [], [], [0n]);
 
@@ -185,7 +177,6 @@ describe("Show Circuit - Device Binding Verification", () => {
       const verifierNonce = "age-check-adult";
       const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
 
-      // 0570605 => ROC 57/06/05 => 1968-06-05 (adult in 2026)
       const adultClaim = encodeClaim("roc_birthday", "0570605");
       const params = generateShowCircuitParams(mockData.circuitParams);
       const inputs = generateShowInputs(params, verifierNonce, deviceSignature, mockData.deviceKey, [adultClaim], [], [570605n]);
@@ -209,7 +200,6 @@ describe("Show Circuit - Device Binding Verification", () => {
       const verifierNonce = "age-check-underage";
       const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
 
-      // 1040605 => ROC 104/06/05 => 2015-06-05 (underage in 2026)
       const underageClaim = encodeClaim("roc_birthday", "1040605");
       const params = generateShowCircuitParams(mockData.circuitParams);
       const inputs = generateShowInputs(params, verifierNonce, deviceSignature, mockData.deviceKey, [underageClaim], [], [1040605n]);
@@ -272,7 +262,6 @@ describe("Show Circuit - Device Binding Verification", () => {
       const verifierNonce = "string-claim-check";
       const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
 
-      // Show compares integers, so we use the same packed representation as JWT normalizer format=string.
       const packedNationality = packAsciiBigEndian("TW");
       const nationalityClaim = encodeClaim("nationality", packedNationality.toString());
 
@@ -298,7 +287,6 @@ describe("Show Circuit - Device Binding Verification", () => {
       const verifierNonce = "boolean-claim-check";
       const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
 
-      // Boolean true encoded as canonical integer 1.
       const boolClaim = encodeClaim("is_over_18", "1");
 
       const params = generateShowCircuitParams(mockData.circuitParams);

@@ -388,8 +388,8 @@ fn run_prove_pipeline(
     let verify_show_ms = t0.elapsed().as_millis();
     println!("✓ Show proof verified: {} ms", verify_show_ms);
     if !show_public_values.is_empty() {
-        let age_above_18 = show_public_values[0] == Field::ONE;
-        println!("  ageAbove18: {}\n", age_above_18);
+        let expression_result = show_public_values[0] == Field::ONE;
+        println!("  expressionResult: {}\n", expression_result);
     }
 
     let prepare_proving_key_bytes =
@@ -640,8 +640,11 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
                 path_config.key_path(SHOW_VERIFYING_KEY),
             );
             if !public_values.is_empty() {
-                let age_above_18 = public_values[0] == Field::ONE;
-                println!("ageAbove18: {} (raw: {:?})", age_above_18, public_values[0]);
+                let expression_result = public_values[0] == Field::ONE;
+                println!(
+                    "expressionResult: {} (raw: {:?})",
+                    expression_result, public_values[0]
+                );
             }
         }
         CircuitAction::Reblind => {
@@ -923,7 +926,7 @@ Options:
 
 Typical workflow:
   # 1. Compile circuits (Circom side)
-  cd ../circom && yarn compile:jwt:all-sizes
+  cd ../circom && yarn compile:all
 
   # 2. Generate inputs for each size
   yarn generate:inputs --all

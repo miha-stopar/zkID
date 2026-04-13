@@ -6,23 +6,13 @@ import type { JwkEcdsaPublicKey } from "./es256.ts";
 import type { JwtCircuitParams } from "./jwt.ts";
 import { base64urlToBigInt, base64urlToBase64, bufferToBigInt } from "./utils.ts";
 
-// ---------------------------------------------------------------------------
-// Logic token constants for the Show helper API.
-//
-//   2 = AND    (binary)
-//   3 = OR     (binary)
-//   4 = NOT    (unary)
-//   6+j = predicateResults[j] reference token
-// ---------------------------------------------------------------------------
 export const LogicToken = {
   AND: 2,
   OR: 3,
   NOT: 4,
-  /** Base offset for predicate references. predicateToken(j) = PRED_BASE + j */
   PRED_BASE: 6,
 } as const;
 
-/** Returns the token value that references predicateResults[j]. */
 export function predicateToken(j: number): number {
   return LogicToken.PRED_BASE + j;
 }
@@ -36,7 +26,7 @@ export interface ShowCircuitParams {
 
 export function generateShowCircuitParams(params: number[] | JwtCircuitParams): ShowCircuitParams {
   const nClaims = Array.isArray(params) ? Math.max(1, (params[2] || 2) - 2) : Math.max(1, (params.maxMatches || 2) - 2);
-  const maxPredicates = Array.isArray(params) ? (params[5] || 2) : ((params as any).maxPredicates ?? 2);
+  const maxPredicates = Array.isArray(params) ? (params[5] || 2) : 2;
   const maxLogicTokens = Array.isArray(params) ? (params[6] || 8) : 8;
   const valueBits = 64;
 
@@ -77,7 +67,6 @@ function decodeClaimComparableValue(claim: string): bigint {
       return BigInt(trimmed);
     }
 
-    // Non-numeric strings are compared by packed integer form (same convention used in JWT normalization).
     const packed = packAsciiBigEndian(trimmed);
     assert.ok(packed < 2n ** 64n, `String "${trimmed}" packs to more than 64 bits; limit string values to 8 ASCII characters`);
     return packed;
@@ -127,11 +116,8 @@ export function generateShowInputs(
   const scalarFieldOrder = BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551");
   const messageHashModQ = messageHashBigInt % scalarFieldOrder;
 
-  // When encoded claims are provided, normalize them the same way the JWT circuit does.
   const decodedClaimValues = encodedClaims.map((encoded) => decodeClaimComparableValue(encoded));
 
-  // If callers provide both representations, require them to agree exactly and then prefer
-  // the already-normalized values as the source of truth for claimValues.
   if (normalizedClaimValues.length > 0 && decodedClaimValues.length > 0) {
     assert.strictEqual(
       decodedClaimValues.length,
@@ -148,10 +134,6 @@ export function generateShowInputs(
     }
   }
 
-  // Supported input modes:
-  //   1. normalizedClaimValues: pass through unchanged
-  //   2. encodedClaims: decode + normalize inside this helper
-  //   3. neither: default to a zero-valued primary claim for device-binding-only flows
   const normalizedValues =
     normalizedClaimValues.length > 0
       ? normalizedClaimValues
@@ -167,7 +149,7 @@ export function generateShowInputs(
 
   const claimValues = Array(params.nClaims).fill(0n);
   const predicateClaimRefs = Array(params.maxPredicates).fill(0n);
-  const predicateOps = Array(params.maxPredicates).fill(2n); // EQ
+  const predicateOps = Array(params.maxPredicates).fill(2n);
   const predicateCompareValues = Array(params.maxPredicates).fill(primaryClaimValue);
 
   assert.ok(
@@ -179,7 +161,6 @@ export function generateShowInputs(
     claimValues[i] = normalizedValues[i];
   }
 
-  // Predicate 0 defaults to comparing against the first normalized claim value.
   claimValues[0] = primaryClaimValue;
 
   const compactExpr = logicExpr.length === 0 ? [predicateToken(0)] : logicExpr;

@@ -15,7 +15,6 @@
     "compile:jwt:2k": "bash scripts/compile.sh jwt_2k",
     "compile:jwt:4k": "bash scripts/compile.sh jwt_4k",
     "compile:jwt:8k": "bash scripts/compile.sh jwt_8k",
-    "compile:jwt:all-sizes": "bash scripts/compile.sh jwt_1k && bash scripts/compile.sh jwt_2k && bash scripts/compile.sh jwt_4k && bash scripts/compile.sh jwt_8k",
     "compile:show": "bash scripts/compile.sh show",
     "compile:ecdsa": "bash scripts/compile.sh ecdsa",
     "compile:all": "bash scripts/compile.sh all",

@@ -62,6 +62,14 @@ impl CircuitSize {
     pub fn max_claims_length(self) -> usize {
         128
     }
+
+    /// Number of claim slots used by the JWT circuit and exposed as
+    /// `normalizedClaimValues`. Equal to `max_matches - 2` because the first two
+    /// match slots are reserved for the device-binding key (`"x":"` / `"y":"`).
+    /// This must equal the Show circuit's `nClaims` template parameter.
+    pub fn n_claims(self) -> usize {
+        self.max_matches() - 2
+    }
 }
 
 impl Default for CircuitSize {

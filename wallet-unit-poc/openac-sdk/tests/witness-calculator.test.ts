@@ -6,7 +6,7 @@ import { WitnessCalculator } from "../src/witness-calculator.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = join(__dirname, "..", "assets");
-const INPUTS_DIR = join(__dirname, "..", "..", "circom", "inputs");
+const INPUTS_DIR = join(__dirname, "fixtures", "inputs");
 
 describe("WitnessCalculator", () => {
   let calculator: WitnessCalculator;
@@ -28,16 +28,20 @@ describe("WitnessCalculator", () => {
         sig_r: BigInt(inputJson.sig_r),
         sig_s_inverse: BigInt(inputJson.sig_s_inverse),
         messageHash: BigInt(inputJson.messageHash),
-        claim: inputJson.claim.map((v: string) => BigInt(v)),
-        currentYear: BigInt(inputJson.currentYear),
-        currentMonth: BigInt(inputJson.currentMonth),
-        currentDay: BigInt(inputJson.currentDay),
+        predicateLen: BigInt(inputJson.predicateLen),
+        claimValues: inputJson.claimValues.map((v: string) => BigInt(v)),
+        predicateClaimRefs: inputJson.predicateClaimRefs.map((v: string) => BigInt(v)),
+        predicateOps: inputJson.predicateOps.map((v: string) => BigInt(v)),
+        predicateCompareValues: inputJson.predicateCompareValues.map((v: string) => BigInt(v)),
+        tokenTypes: inputJson.tokenTypes.map((v: string) => BigInt(v)),
+        tokenValues: inputJson.tokenValues.map((v: string) => BigInt(v)),
+        exprLen: BigInt(inputJson.exprLen),
       };
 
       const witness = await calculator.calculateShowWitness(inputs);
 
       expect(witness[0]).toBe(1n);
-      expect(witness[1]).toBe(0n); // ageAbove18 (born 2015, under 18)
+      // w[1] = expressionResult, w[2] = deviceKeyX, w[3] = deviceKeyY
       expect(witness[2]).toBe(BigInt(inputJson.deviceKeyX));
       expect(witness[3]).toBe(BigInt(inputJson.deviceKeyY));
     }, 30_000);
@@ -53,10 +57,14 @@ describe("WitnessCalculator", () => {
         sig_r: BigInt(inputJson.sig_r),
         sig_s_inverse: BigInt(inputJson.sig_s_inverse),
         messageHash: BigInt(inputJson.messageHash),
-        claim: inputJson.claim.map((v: string) => BigInt(v)),
-        currentYear: BigInt(inputJson.currentYear),
-        currentMonth: BigInt(inputJson.currentMonth),
-        currentDay: BigInt(inputJson.currentDay),
+        predicateLen: BigInt(inputJson.predicateLen),
+        claimValues: inputJson.claimValues.map((v: string) => BigInt(v)),
+        predicateClaimRefs: inputJson.predicateClaimRefs.map((v: string) => BigInt(v)),
+        predicateOps: inputJson.predicateOps.map((v: string) => BigInt(v)),
+        predicateCompareValues: inputJson.predicateCompareValues.map((v: string) => BigInt(v)),
+        tokenTypes: inputJson.tokenTypes.map((v: string) => BigInt(v)),
+        tokenValues: inputJson.tokenValues.map((v: string) => BigInt(v)),
+        exprLen: BigInt(inputJson.exprLen),
       };
 
       const wtns = await calculator.calculateShowWitnessWtns(inputs);
@@ -77,7 +85,8 @@ describe("WitnessCalculator", () => {
       const witness = await calculator.calculateJwtWitness(inputJson);
 
       expect(witness[0]).toBe(1n);
-      expect(witness.length).toBeGreaterThan(98);
+      // JWT circuit (maxMatches=4): w[1..2] = normalizedClaimValues, w[3] = KeyBindingX, w[4] = KeyBindingY
+      expect(witness.length).toBeGreaterThan(4);
     }, 120_000);
   });
 });

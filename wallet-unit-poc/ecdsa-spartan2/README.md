@@ -1,102 +1,98 @@
 # ecdsa-spartan2
 
-This crate contains the Spartan-based proving tooling used in the zkID wallet proof of concept.
-It exposes a collection of CLI subcommands (under `cargo run --release -- …`) that let you
-generate setup keys, produce proofs for the "prepare" and "show" circuits, and verify those
-proofs against the Circom inputs found in `../circom/inputs`.
+Spartan2-based proving CLI for the zkID wallet PoC. It produces and verifies a
+two-stage split proof — `prepare` (the JWT/ES256 circuit) and `show` (the
+device-binding + generalized predicate circuit) — against the Circom inputs
+in `../circom/inputs/`.
 
-## End-to-end flow
+## Prerequisites
 
-```sh
-# 1. Generate setup artifacts (keys stored in ./keys)
-cargo run --release -- prepare setup --input ../circom/inputs/jwt/default.json
-cargo run --release -- show setup --input ../circom/inputs/show/default.json
-
-# 2. Generate shared blinds (shared across circuits)
-cargo run --release -- generate_shared_blinds
-
-# 3. Produce and reblind the prepare proof
-cargo run --release -- prepare prove   --input ../circom/inputs/jwt/default.json
-RUST_LOG=info cargo run --release -- prepare reblind
-
-# 4. Produce and reblind the show proof
-RUST_LOG=info cargo run --release -- show prove   --input ../circom/inputs/show/default.json
-RUST_LOG=info cargo run --release -- show reblind
-
-# 5. Verify the prepare proof
-cargo run --release -- prepare verify
-
-# 6. Verify the show proof
-cargo run --release -- show verify
-```
-
-## Benchmark Results
-
-The following tables show performance and size measurements for different JWT payload sizes (1KB - 8KB).
-
-### Timing Measurements (Laptop)
-
-All timing measurements are in milliseconds (ms).
-
-**Test Device:** MacBook Pro, M4, 14-core GPU, 24GB RAM
-
-#### Prepare Circuit Timing
-
-| Payload Size | Setup (ms) | Prove (ms) | Reblind (ms) | Verify (ms) |
-| ------------ | ---------- | ---------- | ------------ | ----------- |
-| 1KB          | 2,559      | 1,683      | 382          | 35          |
-| 1920 Bytes   | 4,157      | 2,727      | 715          | 74          |
-| 2KB          | 4,384      | 2,934      | 753          | 83          |
-| 3KB          | 6,466      | 4,242      | 1,357        | 119         |
-| 4KB          | 8,529      | 5,282      | 1,374        | 131         |
-| 5KB          | 10,979     | 6,166      | 1,460        | 140         |
-| 6KB          | 12,993     | 8,407      | 2,821        | 280         |
-| 7KB          | 15,151     | 8,856      | 2,732        | 230         |
-| 8KB          | 16,559     | 9,614      | 2,683        | 246         |
-
-#### Show Circuit Timing
-
-The Show circuit has constant performance regardless of JWT payload size.
-
-| Metric  | Time (ms) |
-| ------- | --------- |
-| Setup   | ~36       |
-| Prove   | ~77       |
-| Reblind | ~25       |
-| Verify  | ~9        |
-
-### Size Measurements
-
-#### Prepare Circuit Sizes
-
-| Payload Size | Proving Key (MB) | Verifying Key (MB) | Proof Size (KB) | Witness Size (MB) |
-| ------------ | ---------------- | ------------------ | --------------- | ----------------- |
-| 1KB          | 252.76           | 252.76             | 75.80           | 32.03             |
-| 1920 Bytes   | 420.05           | 420.05             | 109.29          | 64.06             |
-| 2KB          | 433.76           | 433.76             | 109.29          | 64.06             |
-| 3KB          | 636.35           | 636.35             | 175.77          | 128.13            |
-| 4KB          | 836.79           | 836.79             | 175.77          | 128.13            |
-| 5KB          | 964.70           | 964.70             | 175.77          | 128.13            |
-| 6KB          | 1,222.26         | 1,222.26           | 308.26          | 256.25            |
-| 7KB          | 1,382.31         | 1,382.31           | 308.26          | 256.25            |
-| 8KB          | 1,542.35         | 1,542.35           | 308.26          | 256.25            |
-
-#### Show Circuit Sizes
-
-The Show circuit has constant sizes regardless of JWT payload size.
-
-| Metric        | Size      |
-| ------------- | --------- |
-| Proving Key   | 3.45 MB   |
-| Verifying Key | 3.45 MB   |
-| Proof Size    | 40.41 KB  |
-| Witness Size  | 512.52 KB |
-
-### Running Benchmarks
-
-To generate benchmark data for a specific payload size:
+- Rust
+- A C++ toolchain (clang/g++, make) — needed by `witnesscalc-adapter` to
+  link the Circom witness generators into the binary
+- Circom circuits must already be compiled. From the repo root:
 
 ```sh
-# Run the complete benchmark pipeline
-cargo run --release -- benchmark
+  cd ../circom
+  yarn install
+  yarn compile:all          # compiles jwt + jwt_1k/2k/4k/8k + show + ecdsa
 ```
+
+## Build
+
+```sh
+cargo build --release
+```
+
+The first build is slow (~15 min) because `witnesscalc-adapter` compiles each
+`jwt_*.cpp` (30-44 MB) into a static library. Incremental rebuilds are seconds.
+
+## Run the pipeline
+
+The CLI is `cargo run --release -- <prepare|show> <action> --size <Nk>`.
+Sizes are `1k | 2k | 4k | 8k`. Each size has its own keys/artifacts in `./keys/`.
+
+```sh
+SIZE=1k
+
+# 1. One-time setup per size (slow, writes large proving/verifying keys)
+cargo run --release -- prepare setup --size $SIZE --input ../circom/inputs/jwt/$SIZE/default.json
+cargo run --release -- show    setup --size $SIZE --input ../circom/inputs/show/default.json
+
+# 2. Per-presentation flow
+cargo run --release -- generate_shared_blinds --size $SIZE
+cargo run --release -- prepare prove   --size $SIZE --input ../circom/inputs/jwt/$SIZE/default.json
+cargo run --release -- prepare reblind --size $SIZE
+cargo run --release -- show    prove   --size $SIZE --input ../circom/inputs/show/default.json
+cargo run --release -- show    reblind --size $SIZE
+
+# 3. Verify
+cargo run --release -- prepare verify --size $SIZE
+cargo run --release -- show    verify --size $SIZE
+# → expressionResult: true
+```
+
+## One-shot benchmark
+
+Runs the entire pipeline (setup → prove → reblind → verify) for one size and
+prints a timings/sizes table:
+
+```sh
+cargo run --release -- benchmark --size 1k --input ../circom/inputs/jwt/1k/default.json
+```
+
+Or run all four sizes back-to-back (reuses keys already on disk; run `benchmark`
+once per size first if you've never set them up):
+
+```sh
+cargo run --release -- benchmark-all
+```
+
+## Latest benchmark results
+
+MacBook Pro M4, 24 GB RAM. Generated against the current generalized-predicates
+circuits (`Show(2, 2, 8, 64)` + `JWT(maxMsg, ...)`) with the example predicate
+`roc_birthday <= 1070101`.
+
+### Timings (ms)
+
+| Step            |    1k |    2k |    4k |    8k |
+| --------------- | ----: | ----: | ----: | ----: |
+| Prove Prepare   | 1,128 | 1,867 | 3,638 | 7,365 |
+| Reblind Prepare |   365 |   690 | 1,438 | 3,280 |
+| Prove Show      |    55 |    52 |    54 |    62 |
+| Reblind Show    |    25 |    24 |    25 |    24 |
+| Verify Prepare  |   645 | 1,036 | 2,044 | 4,023 |
+| Verify Show     |    16 |    15 |    16 |    17 |
+
+### Sizes
+
+| Artifact         |        1k |        2k |        4k |          8k |
+| ---------------- | --------: | --------: | --------: | ----------: |
+| Prepare Proving Key | 257.22 MB | 407.18 MB | 773.90 MB | 1,512.03 MB |
+| Show Proving Key    |   2.96 MB |   2.96 MB |   2.96 MB |     2.96 MB |
+| Prepare Proof       |  75.93 KB | 109.41 KB | 175.90 KB |   308.38 KB |
+| Show Proof          |  40.51 KB |  40.51 KB |  40.51 KB |    40.51 KB |
+
+The Show circuit is constant across sizes (it doesn't see the JWT). Prepare
+scales roughly linearly with the JWT message length.

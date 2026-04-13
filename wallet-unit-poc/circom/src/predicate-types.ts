@@ -1,7 +1,3 @@
-/**
- * Predicate format constants for JWT claim normalization.
- */
-
 export const PredicateFormat = {
   BOOL: 0,
   UINT: 1,
@@ -12,7 +8,6 @@ export const PredicateFormat = {
 
 export type PredicateFormat = (typeof PredicateFormat)[keyof typeof PredicateFormat];
 
-// Helper function to encode a value as ASCII bytes
 export function encodeValue(value: string, maxLen: number): bigint[] {
   const encoded: bigint[] = [];
   for (let i = 0; i < maxLen; i++) {

@@ -19,10 +19,10 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
       "matchIndex",
       "claims",
       "claimLengths",
-        "decodeFlags",
-        "claimFormats"
+      "decodeFlags",
+      "claimFormats"
     ],
-      ["KeyBindingX", "KeyBindingY", "normalizedClaimValues"]
+    ["KeyBindingX", "KeyBindingY", "normalizedClaimValues"]
   >;
 
   before(async () => {
@@ -30,7 +30,7 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
     circuit = await circomkit.WitnessTester(`JWT`, {
       file: "jwt",
       template: "JWT",
-        params: [2048, 2000, 4, 50, 128],
+      params: [2048, 2000, 4, 50, 128],
       recompile: RECOMPILE,
     });
     console.log("#constraints:", await circuit.getConstraintCount());
@@ -40,17 +40,14 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
     it("should verify hashed claims match _sd array in JWT payload", async () => {
       const mockData = await generateMockData();
 
-      // Decode JWT payload
       const [header, payload, signature] = mockData.token.split(".");
       const decodedPayload = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 
-      // Verify _sd array exists
       assert.ok(decodedPayload.vc, "VC should exist in payload");
       assert.ok(decodedPayload.vc.credentialSubject, "Credential subject should exist");
       assert.ok(decodedPayload.vc.credentialSubject._sd, "_sd array should exist");
       assert.ok(Array.isArray(decodedPayload.vc.credentialSubject._sd), "_sd should be an array");
 
-      // Verify hashed claims match _sd array
       assert.strictEqual(
         mockData.hashedClaims.length,
         decodedPayload.vc.credentialSubject._sd.length,
@@ -71,18 +68,15 @@ describe("VC Mock Data Generator - Circuit Tests", () => {
     it("should verify JWT signature is valid using issuer key", async () => {
       const mockData = await generateMockData();
 
-      // Verify JWT signature using our custom verification function
       const isValid = verifyJWTSignature(mockData.token, mockData.issuerKey);
       assert.ok(isValid, "JWT signature should be valid");
 
-      // Decode and verify payload structure
       const [header, payload, signature] = mockData.token.split(".");
       const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 
-      // Verify payload structure
       assert.ok(decoded.vc, "VC should exist in verified payload");
       assert.ok(decoded.cnf, "CNF should exist in verified payload");
-      assert.ok((decoded.cnf as any).jwk, "JWK should exist in CNF");
+      assert.ok(decoded.cnf.jwk, "JWK should exist in CNF");
     });
   });
 

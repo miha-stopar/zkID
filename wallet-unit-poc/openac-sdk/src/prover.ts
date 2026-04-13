@@ -99,13 +99,16 @@ export class Prover {
       request.additionalMatches ?? credential.disclosureHashes;
     const jwtParams: JwtCircuitParams = request.jwtParams ?? DEFAULT_JWT_PARAMS;
 
+    const claimFormats = request.claimFormats ??
+      credential.claims.map((_, i) => (i === birthdayClaimIndex ? 3 : 4));
+
     const jwtInputs = buildJwtCircuitInputs(
       credential,
       request.issuerPublicKey,
       jwtParams,
       additionalMatches,
       decodeFlags,
-      birthdayClaimIndex,
+      claimFormats,
     );
     const jwtInputsJson = circuitInputsToJson(jwtInputs);
     timing.buildInputsMs = performance.now() - t1;
@@ -139,7 +142,6 @@ export class Prover {
     const timing: Partial<PresentationTiming> = {};
 
     const { precomputed, verifierNonce, devicePrivateKey, keys } = request;
-    const currentDate = request.currentDate ?? new Date();
     const showParams = request.showParams ?? DEFAULT_SHOW_PARAMS;
 
     const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
@@ -149,12 +151,7 @@ export class Prover {
       verifierNonce,
       deviceSignature,
       precomputed.deviceKey,
-      precomputed.birthdayClaim,
-      {
-        year: currentDate.getUTCFullYear(),
-        month: currentDate.getUTCMonth() + 1,
-        day: currentDate.getUTCDate(),
-      },
+      request.showInputOptions,
     );
     const showInputsJson = circuitInputsToJson(showInputs);
 
@@ -181,18 +178,18 @@ export class Prover {
     timing.presentMs = performance.now() - t1;
     timing.totalMs = performance.now() - startTime;
 
-    let ageAbove18 = false;
+    let expressionResult = false;
     if (this.witnessCalculator) {
       const inputs = this.parseJsonToBigInt(showInputsJson);
       const showWitness = await this.witnessCalculator.calculateShowWitness(inputs);
-      ageAbove18 = showWitness[1] === 1n;
+      expressionResult = showWitness[1] === 1n;
     }
 
     const publicValues: ProofPublicValues = {
-      ageAbove18,
+      expressionResult,
       deviceKeyX: showInputs.deviceKeyX.toString(),
       deviceKeyY: showInputs.deviceKeyY.toString(),
-      ageClaim: [],
+      normalizedClaimValues: [],
     };
 
     return this.buildPresentationProof(
@@ -241,9 +238,9 @@ export class Prover {
       maxClaimLength: 128,
     };
 
-    const showParams: ShowCircuitParams = request.showParams ?? {
-      maxClaimsLength: 128,
-    };
+    const showParams: ShowCircuitParams = request.showParams ?? DEFAULT_SHOW_PARAMS;
+
+    const claimFormats = credential.claims.map((_, i) => (i === birthdayClaimIndex ? 3 : 4));
 
     const jwtInputs = buildJwtCircuitInputs(
       credential,
@@ -251,7 +248,7 @@ export class Prover {
       jwtParams,
       additionalMatches,
       decodeFlags,
-      birthdayClaimIndex,
+      claimFormats,
     );
 
     const jwtInputsJson = circuitInputsToJson(jwtInputs);
@@ -270,19 +267,10 @@ export class Prover {
     timing.prepareProveMs = performance.now() - t1;
 
     // build Show circuit inputs
-    const currentDate = request.currentDate ?? new Date();
     const deviceSignature = signDeviceNonce(
       request.verifierNonce,
       request.devicePrivateKey,
     );
-
-    const birthdayClaim = credential.claims[birthdayClaimIndex];
-    if (!birthdayClaim) {
-      throw new InputError(
-        "BIRTHDAY_NOT_FOUND",
-        `No claim at index ${birthdayClaimIndex}`,
-      );
-    }
 
     const deviceKey = credential.deviceBindingKey;
     if (!deviceKey) {
@@ -297,12 +285,6 @@ export class Prover {
       request.verifierNonce,
       deviceSignature,
       deviceKey,
-      birthdayClaim.raw,
-      {
-        year: currentDate.getUTCFullYear(),
-        month: currentDate.getUTCMonth() + 1,
-        day: currentDate.getUTCDate(),
-      },
     );
 
     const showInputsJson = circuitInputsToJson(showInputs);
@@ -326,25 +308,26 @@ export class Prover {
 
     timing.totalMs = performance.now() - startTime;
 
-    // Extract ageAbove18 and ageClaim from witness outputs
-    // JWT circuit: w[1..96] = ageClaim (96 decoded bytes), w[97] = KeyBindingX, w[98] = KeyBindingY
-    // Show circuit: w[1] = ageAbove18 (0 or 1), w[2] = deviceKeyX, w[3] = deviceKeyY
-    let ageAbove18 = false;
-    let ageClaim: bigint[] = [];
+    // Extract expressionResult and normalizedClaimValues from witness outputs
+    // JWT circuit (maxMatches=4): w[1..2] = normalizedClaimValues[0..1], w[3] = KeyBindingX, w[4] = KeyBindingY
+    // Show circuit: w[1] = expressionResult (0 or 1), w[2] = deviceKeyX, w[3] = deviceKeyY
+    let expressionResult = false;
+    let normalizedClaimValues: bigint[] = [];
+    const maxClaims = jwtParams.maxMatches - 2;
 
     if (this.witnessCalculator) {
       const jwtWitness = await this.calculateJwtWitness(jwtInputsJson);
-      ageClaim = jwtWitness.slice(1, 97);
+      normalizedClaimValues = jwtWitness.slice(1, 1 + maxClaims);
 
       const showWitness = await this.calculateShowWitness(showInputsJson);
-      ageAbove18 = showWitness[1] === 1n;
+      expressionResult = showWitness[1] === 1n;
     }
 
     const publicValues: ProofPublicValues = {
-      ageAbove18,
+      expressionResult,
       deviceKeyX: showInputs.deviceKeyX.toString(),
       deviceKeyY: showInputs.deviceKeyY.toString(),
-      ageClaim,
+      normalizedClaimValues,
     };
 
     const result: ProofResult = {
@@ -371,7 +354,7 @@ export class Prover {
           prepareInstance: base64Encode(result.prepareInstance),
           showInstance: base64Encode(result.showInstance),
           publicValues: {
-            ageAbove18: result.publicValues.ageAbove18,
+            expressionResult: result.publicValues.expressionResult,
             deviceKeyX: result.publicValues.deviceKeyX,
             deviceKeyY: result.publicValues.deviceKeyY,
           },
@@ -530,7 +513,7 @@ export class Prover {
           prepareInstance: base64Encode(result.prepareInstance),
           showInstance: base64Encode(result.showInstance),
           publicValues: {
-            ageAbove18: result.publicValues.ageAbove18,
+            expressionResult: result.publicValues.expressionResult,
             deviceKeyX: result.publicValues.deviceKeyX,
             deviceKeyY: result.publicValues.deviceKeyY,
           },

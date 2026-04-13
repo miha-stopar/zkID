@@ -101,6 +101,8 @@ impl ShowCircuit {
         info!("Generating witness using witnesscalc...");
         let t0 = Instant::now();
 
+        // Show circuit has no 2D array fields, so the dimension args are unused;
+        // pass through the configured sizes for symmetry with the JWT path.
         let inputs_json = hashmap_to_json_string(
             &inputs,
             self.path_config.circuit_size.max_matches(),
@@ -163,7 +165,8 @@ impl SpartanCircuit<E> for ShowCircuit {
                 synthesize(cs, r1cs, Some(witness))?;
             }
             Err(_) => {
-                // Show circuit: 3 public signals (ageAbove18, deviceKeyX, deviceKeyY)
+                // Show circuit public signals: expressionResult (output) +
+                // deviceKeyX, deviceKeyY (declared `public[...]` in main).
                 let num_public = 3;
                 synthesize_witness_only(cs, &witness, num_public)?;
             }
@@ -172,8 +175,10 @@ impl SpartanCircuit<E> for ShowCircuit {
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        // Circom public IO: ageAbove18 (output), deviceKeyX, deviceKeyY (inputs)
-        // Witness indices 1..=3
+        // Circom public IO order (from show.sym):
+        //   w[1] = expressionResult (output)
+        //   w[2] = deviceKeyX (public input)
+        //   w[3] = deviceKeyY (public input)
         let witness = self.get_or_generate_witness().ok();
 
         let mut values = Vec::with_capacity(3);
@@ -188,7 +193,7 @@ impl SpartanCircuit<E> for ShowCircuit {
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
         let layout =
-            calculate_show_witness_indices(self.path_config.circuit_size.max_claims_length());
+            calculate_show_witness_indices(self.path_config.circuit_size.n_claims());
 
         // Check cached witness first (covers with_witness() path), then try
         // generating from input_path (native path). Returns None during setup.
@@ -214,17 +219,19 @@ impl SpartanCircuit<E> for ShowCircuit {
         let kb_x = AllocatedNum::alloc(cs.namespace(|| "KeyBindingX"), || Ok(device_key_x))?;
         let kb_y = AllocatedNum::alloc(cs.namespace(|| "KeyBindingY"), || Ok(device_key_y))?;
 
-        let mut shared_values = Vec::with_capacity(2 + layout.claim_len);
+        // Shared layout (must match `PrepareCircuit::shared`):
+        //   [KeyBindingX, KeyBindingY, claimValues[0..n_claims]]
+        let mut shared_values = Vec::with_capacity(2 + layout.claim_values_len);
         shared_values.push(kb_x);
         shared_values.push(kb_y);
 
-        for idx in 0..layout.claim_len {
+        for idx in 0..layout.claim_values_len {
             let claim_scalar = witness
                 .as_ref()
-                .map(|w| w[layout.claim_start + idx])
+                .map(|w| w[layout.claim_values_start + idx])
                 .unwrap_or(Scalar::ZERO);
             let claim_alloc =
-                AllocatedNum::alloc(cs.namespace(|| format!("Claim{idx}")), move || {
+                AllocatedNum::alloc(cs.namespace(|| format!("ClaimValue{idx}")), move || {
                     Ok(claim_scalar)
                 })?;
             shared_values.push(claim_alloc);

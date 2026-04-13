@@ -23,7 +23,10 @@ export interface JwtCircuitParams {
 }
 
 export interface ShowCircuitParams {
-  maxClaimsLength: number;
+  nClaims: number;
+  maxPredicates: number;
+  maxLogicTokens: number;
+  valueBits: number;
 }
 
 // Default circuit parameters matching production circom configuration
@@ -36,7 +39,10 @@ export const DEFAULT_JWT_PARAMS: JwtCircuitParams = {
 };
 
 export const DEFAULT_SHOW_PARAMS: ShowCircuitParams = {
-  maxClaimsLength: 128,
+  nClaims: 2,
+  maxPredicates: 2,
+  maxLogicTokens: 8,
+  valueBits: 64,
 };
 
 // ECDSA P-256 public key in JWK format
@@ -84,10 +90,10 @@ export interface ProofResult {
 }
 
 export interface ProofPublicValues {
-  ageAbove18: boolean;
+  expressionResult: boolean;
   deviceKeyX: string;
   deviceKeyY: string;
-  ageClaim: bigint[];
+  normalizedClaimValues: bigint[];
 }
 
 export interface ProofTiming {
@@ -107,7 +113,7 @@ export interface VerifyingKeys {
 
 export interface VerificationResult {
   valid: boolean;
-  ageAbove18: boolean | null;
+  expressionResult: boolean | null;
   deviceKey: { x: string; y: string } | null;
   verifyMs: number;
   error?: string;
@@ -136,7 +142,7 @@ export interface SerializedProofJSON {
   prepareInstance: string; // base64
   showInstance: string; // base64
   publicValues: {
-    ageAbove18: boolean;
+    expressionResult: boolean;
     deviceKeyX: string;
     deviceKeyY: string;
   };
@@ -228,7 +234,7 @@ export interface JwtCircuitInputs {
   claims: bigint[][];
   claimLengths: bigint[];
   decodeFlags: number[];
-  ageClaimIndex: number;
+  claimFormats: bigint[];
 }
 
 // Raw circuit inputs for the Show circuit
@@ -238,10 +244,14 @@ export interface ShowCircuitInputs {
   sig_r: bigint;
   sig_s_inverse: bigint;
   messageHash: bigint;
-  claim: bigint[];
-  currentYear: bigint;
-  currentMonth: bigint;
-  currentDay: bigint;
+  predicateLen: bigint;
+  claimValues: bigint[];
+  predicateClaimRefs: bigint[];
+  predicateOps: bigint[];
+  predicateCompareValues: bigint[];
+  tokenTypes: bigint[];
+  tokenValues: bigint[];
+  exprLen: bigint;
 }
 
 export interface PrecomputeRequest {
@@ -252,6 +262,7 @@ export interface PrecomputeRequest {
   jwtParams?: JwtCircuitParams;
   birthdayClaimIndex?: number;
   decodeFlags?: number[];
+  claimFormats?: number[];
   additionalMatches?: string[];
 }
 
@@ -298,8 +309,8 @@ export interface PresentRequest {
   verifierNonce: string;
   devicePrivateKey: EcdsaPrivateKey;
   keys: KeySet;
-  currentDate?: Date;
   showParams?: ShowCircuitParams;
+  showInputOptions?: import("./inputs/show-input-builder.js").ShowInputOptions;
 }
 
 export interface PresentationProof {
