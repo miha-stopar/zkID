@@ -21,7 +21,7 @@ import { WasmBridge } from "../src/wasm-bridge.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KEYS_DIR = join(__dirname, "..", "..", "ecdsa-spartan2", "keys");
 const WASM_PKG_DIR = join(__dirname, "..", "wasm", "pkg");
-const CIRCOM_BUILD_DIR = join(__dirname, "..", "..", "circom", "build");
+const ASSETS_DIR = join(__dirname, "..", "assets");
 
 // 1k circuit params — must match circom/circuits.json "jwt_1k" params
 const JWT_PARAMS_1K: JwtCircuitParams = {
@@ -214,8 +214,8 @@ function checkArtifactsExist(): boolean {
     join(KEYS_DIR, "1k_show_verifying.key"),
     join(WASM_PKG_DIR, "openac_wasm.js"),
     join(WASM_PKG_DIR, "openac_wasm_bg.wasm"),
-    join(CIRCOM_BUILD_DIR, "jwt_1k", "jwt_1k_js", "jwt_1k.wasm"),
-    join(CIRCOM_BUILD_DIR, "show", "show_js", "show.wasm"),
+    join(ASSETS_DIR, "jwt_1k", "jwt_1k.wasm"),
+    join(ASSETS_DIR, "show.wasm"),
     join(__dirname, "..", "assets", "witness_calculator.js"),
   ];
 
@@ -227,7 +227,9 @@ function checkArtifactsExist(): boolean {
   return true;
 }
 
-describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
+describe.skipIf(!checkArtifactsExist())(
+  "Full Pipeline — 1k Circuit via WASM Bridge",
+  () => {
   let bridge: WasmBridge;
   let wasmAvailable = false;
   let jwtWitnessCalc: WitnessCalculatorInstance;
@@ -264,13 +266,13 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
       showPk = new Uint8Array(spk);
       showVk = new Uint8Array(svk);
 
-      const witnessCalcJs = join(__dirname, "..", "assets", "witness_calculator.js");
+      const witnessCalcJs = join(ASSETS_DIR, "witness_calculator.js");
       jwtWitnessCalc = await createWitnessCalculator(
-        join(CIRCOM_BUILD_DIR, "jwt_1k", "jwt_1k_js", "jwt_1k.wasm"),
+        join(ASSETS_DIR, "jwt_1k", "jwt_1k.wasm"),
         witnessCalcJs,
       );
       showWitnessCalc = await createWitnessCalculator(
-        join(CIRCOM_BUILD_DIR, "show", "show_js", "show.wasm"),
+        join(ASSETS_DIR, "show.wasm"),
         witnessCalcJs,
       );
 
@@ -296,13 +298,17 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
     );
     const additionalMatches = credential.disclosureHashes;
 
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
     const jwtInputs = buildJwtCircuitInputs(
       credential,
       data.issuerPublicKey,
       JWT_PARAMS_1K,
       additionalMatches,
       decodeFlags,
-      birthdayIdx,
+      claimFormats,
     );
 
     expect(jwtInputs.message.length).toBe(JWT_PARAMS_1K.maxMessageLength);
@@ -327,7 +333,11 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
     expect(prepareResult.instance.length).toBeGreaterThan(0);
     expect(prepareResult.witness.length).toBeGreaterThan(0);
 
-    const birthdayClaim = data.disclosures[birthdayIdx]!;
+    // Extract normalizedClaimValues from JWT witness to pass to Show circuit.
+    // JWT 1k (maxMatches=4, maxClaims=2): w[1..2] = normalizedClaimValues
+    const maxClaims = JWT_PARAMS_1K.maxMatches - 2;
+    const normalizedClaimValues = jwtWitness.slice(1, 1 + maxClaims);
+
     const deviceSignature = signDeviceNonce(
       VERIFIER_NONCE,
       data.devicePrivateKeyHex,
@@ -337,8 +347,7 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
       VERIFIER_NONCE,
       deviceSignature,
       data.devicePublicKey,
-      birthdayClaim,
-      { year: 2025, month: 1, day: 1 },
+      { normalizedClaimValues },
     );
 
     const showInputsJson = circuitInputsToJson(showInputs);
@@ -359,9 +368,9 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
     );
     expect(showResult.proof.length).toBeGreaterThan(0);
 
-    expect(jwtWitness[97]).toBe(showWitness[2]);
-    expect(jwtWitness[98]).toBe(showWitness[3]);
-    expect(showWitness[1]).toBe(1n);
+    // JWT 1k (maxMatches=4, maxClaims=2): w[3]=KeyBindingX, w[4]=KeyBindingY
+    expect(jwtWitness[3]).toBe(showWitness[2]);
+    expect(jwtWitness[4]).toBe(showWitness[3]);
 
     const presentResult = await bridge.present(
       preparePk,
@@ -387,7 +396,10 @@ describe("Full Pipeline — 1k Circuit via WASM Bridge", () => {
 
     expect(verifyResult.valid).toBe(true);
     expect(verifyResult.error).toBeUndefined();
+    // Show circuit: 3 public values (expressionResult, deviceKeyX, deviceKeyY)
     expect(verifyResult.showPublicValues.length).toBe(3);
-    expect(verifyResult.preparePublicValues.length).toBe(98);
+    // JWT 1k circuit: maxClaims(2) + 2 (KeyBindingX, KeyBindingY) = 4 public values
+    expect(verifyResult.preparePublicValues.length).toBe(4);
   }, 900_000);
-});
+},
+);

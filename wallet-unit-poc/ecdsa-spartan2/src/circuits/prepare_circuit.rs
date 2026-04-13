@@ -181,13 +181,13 @@ impl SpartanCircuit<E> for PrepareCircuit {
                 synthesize(cs, r1cs, Some(witness))?;
             }
             Err(_) => {
-                // Prepare circuit: public signals = ageClaim[decoded_len] + KeyBindingX + KeyBindingY
+                // Prepare circuit public signals (in witness order):
+                //   normalizedClaimValues[0..n_claims], KeyBindingX, KeyBindingY
                 let layout = calculate_jwt_output_indices(
                     self.path_config.circuit_size.max_matches(),
                     self.path_config.circuit_size.max_claims_length(),
                 );
-                let num_public = layout.age_claim_len + 2;
-                synthesize_witness_only(cs, &witness, num_public)?;
+                synthesize_witness_only(cs, &witness, layout.num_public())?;
             }
         }
         Ok(())
@@ -198,7 +198,7 @@ impl SpartanCircuit<E> for PrepareCircuit {
             self.path_config.circuit_size.max_matches(),
             self.path_config.circuit_size.max_claims_length(),
         );
-        let num_public = layout.age_claim_len + 2;
+        let num_public = layout.num_public();
 
         let witness = self.get_or_generate_witness().ok();
 
@@ -244,17 +244,19 @@ impl SpartanCircuit<E> for PrepareCircuit {
         let keybinding_y_alloc =
             AllocatedNum::alloc(cs.namespace(|| "KeyBindingY"), || Ok(keybinding_y))?;
 
-        let mut shared_values = Vec::with_capacity(2 + layout.age_claim_len);
+        // Shared layout (must match `ShowCircuit::shared`):
+        //   [KeyBindingX, KeyBindingY, normalizedClaimValues[0..n_claims]]
+        let mut shared_values = Vec::with_capacity(2 + layout.claim_values_len);
         shared_values.push(keybinding_x_alloc);
         shared_values.push(keybinding_y_alloc);
 
-        for idx in 0..layout.age_claim_len {
+        for idx in 0..layout.claim_values_len {
             let claim_scalar = witness
                 .as_ref()
-                .map(|w| w[layout.age_claim_start + idx])
+                .map(|w| w[layout.claim_values_start + idx])
                 .unwrap_or(Scalar::ZERO);
             let claim_alloc =
-                AllocatedNum::alloc(cs.namespace(|| format!("Claim{idx}")), move || {
+                AllocatedNum::alloc(cs.namespace(|| format!("ClaimValue{idx}")), move || {
                     Ok(claim_scalar)
                 })?;
             shared_values.push(claim_alloc);

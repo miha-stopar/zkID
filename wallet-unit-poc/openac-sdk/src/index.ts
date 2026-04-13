@@ -173,7 +173,10 @@ export { buildJwtCircuitInputs } from "./inputs/jwt-input-builder.js";
 export {
   buildShowCircuitInputs,
   signDeviceNonce,
+  PredicateOp,
+  LogicToken,
 } from "./inputs/show-input-builder.js";
+export type { ShowInputOptions, PredicateSpec } from "./inputs/show-input-builder.js";
 
 export {
   OpenACError,

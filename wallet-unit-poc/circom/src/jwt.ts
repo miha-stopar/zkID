@@ -1,6 +1,7 @@
 import { strict as assert } from "assert";
-import { Es256CircuitParams, generateES256Inputs, JwkEcdsaPublicKey, PemPublicKey } from "./es256.ts";
-import { base64urlToBase64, encodeClaims, stringToPaddedBigIntArray } from "./utils.ts";
+import { generateES256Inputs } from "./es256.ts";
+import type { Es256CircuitParams, JwkEcdsaPublicKey, PemPublicKey } from "./es256.ts";
+import { encodeClaims, stringToPaddedBigIntArray } from "./utils.ts";
 
 // The JWT Circuit Parameters
 export interface JwtCircuitParams {
@@ -31,14 +32,18 @@ export function generateJwtInputs(
   pk: JwkEcdsaPublicKey | PemPublicKey,
   matches: string[],
   claims: string[],
-  decodeFlags: number[]
+  claimFormats: number[] = []
 ) {
   // we are not checking the JWT token format, assuming that is correct
   const [b64header, b64payload, b64signature] = token.split(".");
 
   // check that we are not exceeding the limits
   assert.ok(b64payload.length <= params.maxB64PayloadLength);
+  const maxClaims = params.maxMatches - 2;
+  assert.ok(maxClaims >= 0, "maxMatches must be at least 2");
+  assert.ok(claims.length <= maxClaims);
   assert.ok(matches.length + 2 <= params.maxMatches);
+  assert.ok(matches.length === claims.length, `matches.length (${matches.length}) must equal claims.length (${claims.length})`);
 
   // generate inputs for the ES256 validation
   let es256Inputs = generateES256Inputs(params.es256, `${b64header}.${b64payload}`, b64signature, pk);
@@ -67,32 +72,21 @@ export function generateJwtInputs(
     matchIndex.push(0);
   }
 
-  const claimsAligned = ["", "", ...claims];
-  let { claimArray, claimLengths } = encodeClaims(claimsAligned, params.maxMatches, params.maxClaimLength);
+  let { claimArray, claimLengths } = encodeClaims(claims, maxClaims, params.maxClaimLength);
 
-  const decodeFlagsAligned: number[] = [0, 0, ...decodeFlags];
-  while (decodeFlagsAligned.length < params.maxMatches) {
-    decodeFlagsAligned.push(0);
-  }
-  const decodeFlagsOut = decodeFlagsAligned.slice(0, params.maxMatches);
-
-  const ageClaimOffset = claims.findIndex((claim) => {
-    try {
-      const decoded = Buffer.from(base64urlToBase64(claim), "base64").toString("utf8");
-      const parsed = JSON.parse(decoded);
-      return Array.isArray(parsed) && parsed[1] === "roc_birthday";
-    } catch {
-      return false;
+  const decodeFlagsOut: number[] = [];
+  for (let i = 0; i < maxClaims; i++) {
+    if (i < claims.length) {
+      decodeFlagsOut.push(/[-_]/.test(claims[i]) ? 0 : 1);
+    } else {
+      decodeFlagsOut.push(0);
     }
-  });
+  }
 
-  assert.ok(ageClaimOffset >= 0, "roc_birthday claim not found among provided claims");
-  const ageClaimIndex = ageClaimOffset + 2;
-
-  // const now = new Date();
-  // const currentYear = BigInt(now.getUTCFullYear());
-  // const currentMonth = BigInt(now.getUTCMonth() + 1);
-  // const currentDay = BigInt(now.getUTCDate());
+  const claimFormatsOut: bigint[] = [];
+  for (let i = 0; i < maxClaims; i++) {
+    claimFormatsOut.push(BigInt(i < claimFormats.length ? claimFormats[i] : 1));
+  }
 
   return {
     ...es256Inputs,
@@ -104,6 +98,6 @@ export function generateJwtInputs(
     claims: claimArray,
     claimLengths,
     decodeFlags: decodeFlagsOut,
-    ageClaimIndex,
+    claimFormats: claimFormatsOut,
   };
 }
