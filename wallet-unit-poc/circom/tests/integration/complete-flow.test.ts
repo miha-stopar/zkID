@@ -2,9 +2,7 @@ import type { WitnessTester } from "circomkit";
 import { circomkit } from "../common/index.ts";
 import { generateMockData } from "../../src/mock-vc-generator.ts";
 import { generateShowCircuitParams, generateShowInputs, signDeviceNonce } from "../../src/show.ts";
-import { base64ToBigInt, base64urlToBase64 } from "../../src/utils.ts";
 import assert from "assert";
-import fs from "fs";
 import { p256 } from "@noble/curves/nist.js";
 
 describe("Complete Flow: Register (JWT) → Show Circuit", () => {
@@ -58,8 +56,6 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
 
       const jwtWitness = await jwtCircuit.calculateWitness(mockData.circuitInputs);
       await jwtCircuit.expectConstraintPass(jwtWitness);
-      // circomkit symbol loading for this large JWT circuit can overflow when reading/asserting outputs.
-      // Use the known normalized roc_date value for this fixture claim: "0570605" -> 570605.
       const normalizedClaimValues = [570605n, 0n];
 
       const verifierNonce = "full-flow-predicate-check";
@@ -75,7 +71,6 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
         normalizedClaimValues
       );
 
-      // Evaluate predicate: claim <= 1070101 (adult cutoff in ROC date encoding).
       showInputs.predicateLen = 1n;
       showInputs.predicateClaimRefs[0] = 0n;
       showInputs.predicateOps[0] = 0n;
@@ -135,34 +130,17 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
     // });
 
     it("should fail Show circuit when device signature doesn't match extracted key", async () => {
-      // Phase 1: Prepare - Extract device binding key
       const mockData = await generateMockData({
         circuitParams: [1920, 1600, 4, 50, 128],
       });
 
-      const claim = mockData.claims.find((encodedClaim) => {
-        try {
-          const decodedClaim = Buffer.from(encodedClaim, "base64url").toString("utf8");
-          const parsedClaim = JSON.parse(decodedClaim);
-          return Array.isArray(parsedClaim) && parsedClaim[1] === "roc_birthday";
-        } catch {
-          return false;
-        }
-      });
-
-      assert.ok(claim, "Expected mock credential to include a roc_birthday claim");
-
       const jwtWitness = await jwtCircuit.calculateWitness(mockData.circuitInputs);
       await jwtCircuit.expectConstraintPass(jwtWitness);
 
-      // Phase 2: Show - Try to use wrong device signature
       const verifierNonce = "verifier-challenge-12345";
-
-      // Create a different device key (wrong key)
       const wrongPrivateKey = p256.utils.randomSecretKey();
       const wrongSignature = signDeviceNonce(verifierNonce, wrongPrivateKey);
 
-      // Try to verify with wrong signature (should fail)
       const showParams = {
         nClaims: 2,
         maxPredicates: 2,
@@ -170,10 +148,9 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
         valueBits: 64,
       };
 
-      // This should throw an error because signature doesn't match
       assert.throws(
         () => {
-          generateShowInputs(showParams, verifierNonce, wrongSignature, mockData.deviceKey, [claim]);
+          generateShowInputs(showParams, verifierNonce, wrongSignature, mockData.deviceKey, [mockData.claims[0]]);
         },
         /Device signature verification failed/,
         "Should fail when device signature doesn't match device binding key"

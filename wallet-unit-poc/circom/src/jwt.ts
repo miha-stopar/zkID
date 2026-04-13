@@ -26,10 +26,6 @@ export function generateJwtCircuitParams(params: number[]): JwtCircuitParams {
 }
 
 // Generate JWT circuit inputs
-// claimFormats: format for each user claim (same order as claims[]). Defaults to uint (1).
-//   0=bool, 1=uint, 2=iso_date (YYYY-MM-DD), 3=roc_date (YYYMMDD), 4=string
-// decodeFlags are computed automatically: 1 for claims whose base64url encoding uses only
-// standard base64 characters (no '-' or '_'), 0 otherwise.
 export function generateJwtInputs(
   params: JwtCircuitParams,
   token: string,
@@ -78,9 +74,6 @@ export function generateJwtInputs(
 
   let { claimArray, claimLengths } = encodeClaims(claims, maxClaims, params.maxClaimLength);
 
-  // Compute decodeFlags automatically for claim-only slots:
-  //   1 if the claim's base64url encoding uses only standard base64 chars
-  //   (no '-' or '_'), so ClaimDecoder can decode it; 0 otherwise.
   const decodeFlagsOut: number[] = [];
   for (let i = 0; i < maxClaims; i++) {
     if (i < claims.length) {
@@ -90,7 +83,6 @@ export function generateJwtInputs(
     }
   }
 
-  // Build claimFormats array for claim-only slots.
   const claimFormatsOut: bigint[] = [];
   for (let i = 0; i < maxClaims; i++) {
     claimFormatsOut.push(BigInt(i < claimFormats.length ? claimFormats[i] : 1));

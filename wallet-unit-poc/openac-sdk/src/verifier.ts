@@ -33,7 +33,7 @@ export class Verifier {
     } catch {
       return {
         valid: false,
-        ageAbove18: null,
+        expressionResult: null,
         deviceKey: null,
         verifyMs: performance.now() - startTime,
         error: "Invalid proof format",
@@ -52,18 +52,18 @@ export class Verifier {
     if (!result.valid) {
       return {
         valid: false,
-        ageAbove18: null,
+        expressionResult: null,
         deviceKey: null,
         verifyMs: performance.now() - startTime,
         error: result.error ?? "Proof verification failed",
       };
     }
 
-    const ageAbove18 = parseScalarToBool(result.showPublicValues[0] ?? "");
+    const expressionResult = parseScalarToBool(result.showPublicValues[0] ?? "");
 
     return {
       valid: true,
-      ageAbove18,
+      expressionResult,
       deviceKey: {
         x: result.showPublicValues[1] ?? "",
         y: result.showPublicValues[2] ?? "",
@@ -93,18 +93,18 @@ export class Verifier {
     if (!result.valid) {
       return {
         valid: false,
-        ageAbove18: null,
+        expressionResult: null,
         deviceKey: null,
         verifyMs: performance.now() - startTime,
         error: result.error ?? "Proof verification failed",
       };
     }
 
-    const ageAbove18 = parseScalarToBool(result.showPublicValues[0] ?? "");
+    const expressionResult = parseScalarToBool(result.showPublicValues[0] ?? "");
 
     return {
       valid: true,
-      ageAbove18,
+      expressionResult,
       deviceKey: {
         x: result.showPublicValues[1] ?? "",
         y: result.showPublicValues[2] ?? "",

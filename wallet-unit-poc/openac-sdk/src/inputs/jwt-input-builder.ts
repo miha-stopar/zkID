@@ -94,7 +94,7 @@ export function buildJwtCircuitInputs(
   params: JwtCircuitParams,
   additionalMatches: string[],
   decodeFlags: number[],
-  birthdayClaimIndex: number,
+  claimFormats: number[] = [],
 ): JwtCircuitInputs {
   const { b64Header, b64Payload, b64Signature } = credential;
 
@@ -213,24 +213,27 @@ export function buildJwtCircuitInputs(
     matchIndex.push(0);
   }
 
-  // claims processing — first 2 slots are for x/y patterns (empty), rest are real claims
+  // claims processing — claim-only slots (maxClaims = maxMatches - 2)
+  const maxClaims = params.maxMatches - 2;
   const rawDisclosures = credential.claims.map((c) => c.raw);
-  const claimsAligned = ["", "", ...rawDisclosures];
   const { claimArray, claimLengths } = encodeClaims(
-    claimsAligned,
-    params.maxMatches,
+    rawDisclosures,
+    maxClaims,
     params.maxClaimLength,
   );
 
-  // align decode flags
-  const decodeFlagsAligned: number[] = [0, 0, ...decodeFlags];
-  while (decodeFlagsAligned.length < params.maxMatches) {
-    decodeFlagsAligned.push(0);
+  // align decode flags to claim-only slots
+  const decodeFlagsOut: number[] = [];
+  for (let i = 0; i < maxClaims; i++) {
+    decodeFlagsOut.push(i < decodeFlags.length ? decodeFlags[i]! : 0);
   }
-  const decodeFlagsOut = decodeFlagsAligned.slice(0, params.maxMatches);
 
-  // offset by 2 for the x/y pattern slots
-  const ageClaimIndex = birthdayClaimIndex + 2;
+  // Build claimFormats array for claim-only slots
+  // Default: uint (1) for unspecified formats
+  const claimFormatsOut: bigint[] = [];
+  for (let i = 0; i < maxClaims; i++) {
+    claimFormatsOut.push(BigInt(i < claimFormats.length ? claimFormats[i]! : 1));
+  }
 
   return {
     sig_r: sigDecoded.r,
@@ -247,6 +250,6 @@ export function buildJwtCircuitInputs(
     claims: claimArray,
     claimLengths,
     decodeFlags: decodeFlagsOut,
-    ageClaimIndex,
+    claimFormats: claimFormatsOut,
   };
 }

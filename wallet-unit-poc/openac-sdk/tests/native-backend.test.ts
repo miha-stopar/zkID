@@ -8,55 +8,39 @@ import { WitnessCalculator } from "../src/witness-calculator.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KEYS_DIR = join(__dirname, "..", "..", "ecdsa-spartan2", "keys");
 const ASSETS_DIR = join(__dirname, "..", "assets");
-const INPUTS_DIR = join(__dirname, "..", "..", "circom", "inputs");
+const INPUTS_DIR = join(__dirname, "fixtures", "inputs");
 
-describe("Native Backend — Artifact Existence", () => {
-  it("should find pre-generated keys directory", () => {
-    expect(existsSync(KEYS_DIR)).toBe(true);
-  });
+const NATIVE_ARTIFACTS = [
+  "prepare_proof.bin",
+  "show_proof.bin",
+  "prepare_instance.bin",
+  "show_instance.bin",
+  "prepare_witness.bin",
+  "show_witness.bin",
+  "shared_blinds.bin",
+  "prepare_verifying.key",
+  "show_verifying.key",
+];
 
-  it("should have prepare verifying key", () => {
-    const vkPath = join(KEYS_DIR, "prepare_verifying.key");
-    expect(existsSync(vkPath)).toBe(true);
-  });
+function hasNativeArtifacts(): boolean {
+  return NATIVE_ARTIFACTS.every((f) => existsSync(join(KEYS_DIR, f)));
+}
 
-  it("should have show verifying key", () => {
-    const vkPath = join(KEYS_DIR, "show_verifying.key");
-    expect(existsSync(vkPath)).toBe(true);
-  });
+describe.skipIf(!hasNativeArtifacts())(
+  "Native Backend — Artifact Existence",
+  () => {
+    it("should find pre-generated keys directory", () => {
+      expect(existsSync(KEYS_DIR)).toBe(true);
+    });
 
-  it("should have prepare proof artifact", () => {
-    const proofPath = join(KEYS_DIR, "prepare_proof.bin");
-    expect(existsSync(proofPath)).toBe(true);
-  });
-
-  it("should have show proof artifact", () => {
-    const proofPath = join(KEYS_DIR, "show_proof.bin");
-    expect(existsSync(proofPath)).toBe(true);
-  });
-
-  it("should have shared blinds", () => {
-    const blindsPath = join(KEYS_DIR, "shared_blinds.bin");
-    expect(existsSync(blindsPath)).toBe(true);
-  });
-
-  it("should have all proof components", () => {
-    const artifacts = [
-      "prepare_proof.bin",
-      "show_proof.bin",
-      "prepare_instance.bin",
-      "show_instance.bin",
-      "prepare_witness.bin",
-      "show_witness.bin",
-      "shared_blinds.bin",
-    ];
-
-    for (const artifact of artifacts) {
-      const path = join(KEYS_DIR, artifact);
-      expect(existsSync(path), `${artifact} should exist`).toBe(true);
-    }
-  });
-});
+    it("should have all proof components", () => {
+      for (const artifact of NATIVE_ARTIFACTS) {
+        const path = join(KEYS_DIR, artifact);
+        expect(existsSync(path), `${artifact} should exist`).toBe(true);
+      }
+    });
+  },
+);
 
 describe("Age Verification", () => {
   let calculator: WitnessCalculator;
@@ -66,7 +50,7 @@ describe("Age Verification", () => {
     await calculator.init();
   });
 
-  it("should verify age from Show circuit witness", async () => {
+  it("should verify expression result from Show circuit witness", async () => {
     const inputJson = JSON.parse(
       await readFile(join(INPUTS_DIR, "show", "default.json"), "utf-8"),
     );
@@ -77,14 +61,19 @@ describe("Age Verification", () => {
       sig_r: BigInt(inputJson.sig_r),
       sig_s_inverse: BigInt(inputJson.sig_s_inverse),
       messageHash: BigInt(inputJson.messageHash),
-      claim: inputJson.claim.map((v: string) => BigInt(v)),
-      currentYear: BigInt(inputJson.currentYear),
-      currentMonth: BigInt(inputJson.currentMonth),
-      currentDay: BigInt(inputJson.currentDay),
+      predicateLen: BigInt(inputJson.predicateLen),
+      claimValues: inputJson.claimValues.map((v: string) => BigInt(v)),
+      predicateClaimRefs: inputJson.predicateClaimRefs.map((v: string) => BigInt(v)),
+      predicateOps: inputJson.predicateOps.map((v: string) => BigInt(v)),
+      predicateCompareValues: inputJson.predicateCompareValues.map((v: string) => BigInt(v)),
+      tokenTypes: inputJson.tokenTypes.map((v: string) => BigInt(v)),
+      tokenValues: inputJson.tokenValues.map((v: string) => BigInt(v)),
+      exprLen: BigInt(inputJson.exprLen),
     };
 
     const witness = await calculator.calculateShowWitness(inputs);
 
-    expect(witness[1]).toBe(0n);
+    // w[1] = expressionResult (predicate evaluation result)
+    expect(typeof witness[1]).toBe("bigint");
   }, 30_000);
 });

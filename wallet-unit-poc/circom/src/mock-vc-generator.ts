@@ -100,6 +100,7 @@ export interface MockDataOptions {
   matches?: string[];
   kid?: string;
   targetPayloadLength?: number;
+  claimFormats?: number[];
 }
 
 export interface MockDataResult {
@@ -132,7 +133,6 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
 
   const claimStrings = claims.map((claim) => generateClaim(claim.key, claim.value));
 
-  const claimMaxLength = options.circuitParams?.[4] ?? 128;
   const hashedClaims = claimStrings.map((claim) => {
     const claimBytes = Uint8Array.from(Buffer.from(claim, "utf8"));
     return Buffer.from(sha256(claimBytes)).toString("base64url");
@@ -237,6 +237,7 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
     issuerKeyData.publicKey,
     matches,
     claimStrings,
+    options.claimFormats ?? [],
   );
 
   return {
