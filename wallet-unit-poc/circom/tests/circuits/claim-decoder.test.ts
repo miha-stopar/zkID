@@ -1,9 +1,9 @@
 import { sha256 } from "@noble/hashes/sha2";
 import assert from "assert";
-import { WitnessTester } from "circomkit";
-import { circomkit } from "../common";
-import { base64urlToBase64, encodeClaims } from "../../src/utils";
-import { generateMockData } from "../../src/mock-vc-generator";
+import type { WitnessTester } from "circomkit";
+import { circomkit } from "../common/index.ts";
+import { base64urlToBase64, encodeClaims } from "../../src/utils.ts";
+import { generateMockData } from "../../src/mock-vc-generator.ts";
 
 describe("ClaimDecoder", () => {
   let circuit: WitnessTester<["claims", "claimLengths", "decodeFlags"], ["decodedClaims"]>;
@@ -112,7 +112,6 @@ describe("ClaimDecoder", () => {
         { key: "roc_birthday", value: "1040605" },
         { key: "email", value: "john.doe@example.com" },
       ],
-      decodeFlags: [1, 1, 1],
     });
 
     let claims = mockdata.circuitInputs.claims;
@@ -131,7 +130,7 @@ describe("ClaimDecoder", () => {
     circuit = await circomkit.WitnessTester("ClaimDecoder", {
       file: "components/claim-decoder",
       template: "ClaimDecoder",
-      params: [mockdata.circuitParams.maxMatches, mockdata.circuitParams.maxClaimLength],
+      params: [mockdata.circuitParams.maxMatches - 2, mockdata.circuitParams.maxClaimLength],
       recompile: true,
     });
 
@@ -251,7 +250,7 @@ describe("ClaimHasher", () => {
     });
 
     const maxClaimsLength = mockdata.circuitParams.maxClaimLength;
-    const maxClaims = mockdata.circuitParams.maxMatches;
+    const maxClaims = mockdata.circuitParams.maxMatches - 2;
 
     circuit = await circomkit.WitnessTester("ClaimDecoder", {
       file: "components/claim-decoder",

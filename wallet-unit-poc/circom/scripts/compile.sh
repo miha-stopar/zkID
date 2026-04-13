@@ -1,16 +1,15 @@
 #!/bin/bash
 
 usage() {
-  echo "Usage: $0 {jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|ecdsa|all|all-sizes}"
-  echo "  jwt:       Compile the legacy JWT circuit."
-  echo "  jwt_1k:    Compile JWT circuit (1KB - maxMsg=1024)."
-  echo "  jwt_2k:    Compile JWT circuit (2KB - maxMsg=2048)."
-  echo "  jwt_4k:    Compile JWT circuit (4KB - maxMsg=4096)."
-  echo "  jwt_8k:    Compile JWT circuit (8KB - maxMsg=8192)."
-  echo "  show:      Compile Show circuit."
-  echo "  ecdsa:     Compile ECDSA circuit."
-  echo "  all:       Compile jwt + show + ecdsa."
-  echo "  all-sizes: Compile jwt_1k + jwt_2k + jwt_4k + jwt_8k."
+  echo "Usage: $0 {jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|ecdsa|all}"
+  echo "  jwt:    Compile the default JWT circuit."
+  echo "  jwt_1k: Compile JWT circuit (1KB - maxMsg=1280)."
+  echo "  jwt_2k: Compile JWT circuit (2KB - maxMsg=2048)."
+  echo "  jwt_4k: Compile JWT circuit (4KB - maxMsg=4096)."
+  echo "  jwt_8k: Compile JWT circuit (8KB - maxMsg=8192)."
+  echo "  show:   Compile Show circuit."
+  echo "  ecdsa:  Compile ECDSA circuit."
+  echo "  all:    Compile everything — jwt + jwt_1k/2k/4k/8k + show + ecdsa."
   exit 1
 }
 
@@ -28,8 +27,12 @@ compile_circuit() {
   cp "$name.r1cs" "${name}_js/" || { echo "Error: Failed to copy $name.r1cs."; exit 1; }
   cd ../.. || exit 1
   mkdir -p build/cpp || { echo "Error: Failed to create cpp directory."; exit 1; }
-  [ ! -f "build/cpp/$name.cpp" ] && cp "build/$name/${name}_cpp/$name.cpp" build/cpp/ || true
-  [ ! -f "build/cpp/$name.dat" ] && cp "build/$name/${name}_cpp/$name.dat" build/cpp/ || true
+  # Always overwrite so build/cpp/ stays in sync with the freshly compiled circuit.
+  # (This used to be guarded with `[ ! -f ... ]`, which silently kept stale copies
+  # whenever a circuit was recompiled — leaving downstream consumers like
+  # ecdsa-spartan2/build.rs linked against an outdated witness generator.)
+  cp "build/$name/${name}_cpp/$name.cpp" build/cpp/ || { echo "Error: Failed to copy $name.cpp."; exit 1; }
+  cp "build/$name/${name}_cpp/$name.dat" build/cpp/ || { echo "Error: Failed to copy $name.dat."; exit 1; }
   echo "$name compilation complete."
 }
 
@@ -38,19 +41,15 @@ case "$1" in
     compile_circuit "$1"
     ;;
   all)
-    echo "Compiling all circuits (jwt + show + ecdsa)..."
+    echo "Compiling all circuits (jwt + jwt_1k/2k/4k/8k + show + ecdsa)..."
     compile_circuit jwt
-    compile_circuit show
-    compile_circuit ecdsa
-    echo "All circuits compiled successfully."
-    ;;
-  all-sizes)
-    echo "Compiling all JWT size variants..."
     compile_circuit jwt_1k
     compile_circuit jwt_2k
     compile_circuit jwt_4k
     compile_circuit jwt_8k
-    echo "All JWT size variants compiled successfully."
+    compile_circuit show
+    compile_circuit ecdsa
+    echo "All circuits compiled successfully."
     ;;
   *)
     echo "Error: Invalid option '$1'."

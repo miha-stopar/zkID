@@ -1,6 +1,6 @@
-import { WitnessTester } from "circomkit";
-import { circomkit } from "../common";
-import { base64urlToBase64 } from "../../src/utils";
+import type { WitnessTester } from "circomkit";
+import { circomkit } from "../common/index.ts";
+import { base64urlToBase64 } from "../../src/utils.ts";
 
 describe("DecodeSD circuit", () => {
   let circuit: WitnessTester<["sdBytes", "sdLen"], ["base64Out"]>;

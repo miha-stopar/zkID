@@ -3,11 +3,8 @@ import { sha256 } from "@noble/hashes/sha2";
 import { Field } from "@noble/curves/abstract/modular";
 
 import {
-  base64urlToBase64,
-  base64Decode,
   base64urlToBigInt,
   bytesToBigInt,
-  utf8Decode,
   P256_SCALAR_ORDER,
 } from "../utils.js";
 import { InputError } from "../errors.js";
@@ -27,44 +24,43 @@ export function signDeviceNonce(nonce: string, privateKey: EcdsaPrivateKey): str
   return bytesToBase64url(signature.toCompactRawBytes());
 }
 
+/** Predicate operator codes matching eval-predicate.circom */
+export const PredicateOp = {
+  LE: 0,
+  GE: 1,
+  EQ: 2,
+} as const;
+
+/** Logic token types for postfix expression evaluation */
+export const LogicToken = {
+  REF: 0,
+  AND: 1,
+  OR: 2,
+  NOT: 3,
+} as const;
+
+export interface PredicateSpec {
+  claimRef: number;
+  op: number;
+  compareValue: bigint;
+}
+
+export interface ShowInputOptions {
+  /** Normalized claim values (from JWT circuit output). */
+  normalizedClaimValues?: bigint[];
+  /** Predicate specifications. Defaults to a single EQ predicate on claim 0. */
+  predicates?: PredicateSpec[];
+  /** Postfix logic expression as [tokenType, tokenValue] pairs. Defaults to REF(0). */
+  logicExpression?: Array<{ type: number; value: number }>;
+}
+
 export function buildShowCircuitInputs(
   params: ShowCircuitParams,
   nonce: string,
   deviceSignature: string,
   deviceKey: EcdsaPublicKey,
-  claim: string,
-  currentDate: { year: number; month: number; day: number }
+  options: ShowInputOptions = {},
 ): ShowCircuitInputs {
-  const decodedLen = Math.floor((params.maxClaimsLength * 3) / 4);
-
-  // decode the claim from base64url
-  const b64 = base64urlToBase64(claim);
-  const decodedClaimBytes = base64Decode(b64);
-  const decodedClaim = utf8Decode(decodedClaimBytes);
-
-  if (decodedClaim.length > decodedLen) {
-    throw new InputError(
-      "PARAMS_EXCEEDED",
-      `Decoded claim length (${decodedClaim.length}) exceeds circuit capacity (${decodedLen})`
-    );
-  }
-
-  const claimArray: bigint[] = Array(decodedLen).fill(0n) as bigint[];
-  for (let i = 0; i < decodedClaim.length; i++) {
-    claimArray[i] = BigInt(decodedClaim.charCodeAt(i));
-  }
-
-  // validate date
-  if (!Number.isInteger(currentDate.year) || currentDate.year <= 0) {
-    throw new InputError("INVALID_KEY", "Current year must be a positive integer");
-  }
-  if (!Number.isInteger(currentDate.month) || currentDate.month < 1 || currentDate.month > 12) {
-    throw new InputError("INVALID_KEY", "Current month must be between 1 and 12");
-  }
-  if (!Number.isInteger(currentDate.day) || currentDate.day < 1 || currentDate.day > 31) {
-    throw new InputError("INVALID_KEY", "Current day must be between 1 and 31");
-  }
-
   // decode the device signature
   const sigBytes = base64Decode(deviceSignature);
   const sigHex = Array.from(sigBytes)
@@ -94,16 +90,62 @@ export function buildShowCircuitInputs(
   const messageHashBigInt = bytesToBigInt(messageHash);
   const messageHashModQ = messageHashBigInt % P256_SCALAR_ORDER;
 
+  // Build claim values array
+  const normalizedValues = options.normalizedClaimValues ?? [0n];
+  const claimValues: bigint[] = Array(params.nClaims).fill(0n);
+  for (let i = 0; i < Math.min(params.nClaims, normalizedValues.length); i++) {
+    claimValues[i] = normalizedValues[i]!;
+  }
+
+  // Build predicates
+  const predicates = options.predicates ?? [
+    { claimRef: 0, op: PredicateOp.EQ, compareValue: claimValues[0]! },
+  ];
+  const predicateLen = BigInt(predicates.length);
+
+  const predicateClaimRefs: bigint[] = Array(params.maxPredicates).fill(0n);
+  const predicateOps: bigint[] = Array(params.maxPredicates).fill(BigInt(PredicateOp.EQ));
+  const predicateCompareValues: bigint[] = Array(params.maxPredicates).fill(claimValues[0] ?? 0n);
+
+  for (let i = 0; i < Math.min(params.maxPredicates, predicates.length); i++) {
+    predicateClaimRefs[i] = BigInt(predicates[i]!.claimRef);
+    predicateOps[i] = BigInt(predicates[i]!.op);
+    predicateCompareValues[i] = predicates[i]!.compareValue;
+  }
+
+  // Build logic expression tokens
+  const logicExpr = options.logicExpression ?? [{ type: LogicToken.REF, value: 0 }];
+  const exprLen = BigInt(logicExpr.length);
+
+  if (logicExpr.length > params.maxLogicTokens) {
+    throw new InputError(
+      "PARAMS_EXCEEDED",
+      `Logic expression length (${logicExpr.length}) exceeds maxLogicTokens (${params.maxLogicTokens})`,
+    );
+  }
+
+  const tokenTypes: bigint[] = Array(params.maxLogicTokens).fill(0n);
+  const tokenValues: bigint[] = Array(params.maxLogicTokens).fill(0n);
+
+  for (let i = 0; i < logicExpr.length; i++) {
+    tokenTypes[i] = BigInt(logicExpr[i]!.type);
+    tokenValues[i] = BigInt(logicExpr[i]!.value);
+  }
+
   return {
     deviceKeyX,
     deviceKeyY,
     sig_r: sigDecoded.r,
     sig_s_inverse: sigSInverse,
     messageHash: messageHashModQ,
-    claim: claimArray,
-    currentYear: BigInt(currentDate.year),
-    currentMonth: BigInt(currentDate.month),
-    currentDay: BigInt(currentDate.day),
+    predicateLen,
+    claimValues,
+    predicateClaimRefs,
+    predicateOps,
+    predicateCompareValues,
+    tokenTypes,
+    tokenValues,
+    exprLen,
   };
 }
 
@@ -112,6 +154,20 @@ function hexToBytes(hex: string): Uint8Array {
   const bytes = new Uint8Array(cleanHex.length / 2);
   for (let i = 0; i < bytes.length; i++) {
     bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function base64Decode(input: string): Uint8Array {
+  // handle base64url
+  let b64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = (4 - (b64.length % 4)) % 4;
+  b64 += "=".repeat(pad);
+
+  const binStr = atob(b64);
+  const bytes = new Uint8Array(binStr.length);
+  for (let i = 0; i < binStr.length; i++) {
+    bytes[i] = binStr.charCodeAt(i);
   }
   return bytes;
 }

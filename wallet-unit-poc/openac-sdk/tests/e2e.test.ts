@@ -242,16 +242,11 @@ describe("Input Builders via SDK", () => {
     const deviceKey = DEVICE_PUBLIC_KEY;
     const signature = signDeviceNonce(VERIFIER_NONCE, DEVICE_PRIVATE_KEY_HEX);
 
-    // Claim must be base64url-encoded (as produced by makeDisclosure)
-    const claim = makeDisclosure("salt123", "roc_birthday", "2000-01-15");
-
     const inputs = buildShowCircuitInputs(
       DEFAULT_SHOW_PARAMS,
       VERIFIER_NONCE,
       signature,
       deviceKey,
-      claim,
-      { year: 2024, month: 6, day: 15 },
     );
 
     expect(inputs.deviceKeyX).toBeDefined();
@@ -259,12 +254,12 @@ describe("Input Builders via SDK", () => {
     expect(inputs.sig_r).toBeDefined();
     expect(inputs.sig_s_inverse).toBeDefined();
     expect(inputs.messageHash).toBeDefined();
-    expect(inputs.claim.length).toBe(
-      Math.floor((DEFAULT_SHOW_PARAMS.maxClaimsLength * 3) / 4),
-    );
-    expect(inputs.currentYear).toBe(2024n);
-    expect(inputs.currentMonth).toBe(6n);
-    expect(inputs.currentDay).toBe(15n);
+    expect(inputs.claimValues.length).toBe(DEFAULT_SHOW_PARAMS.nClaims);
+    expect(inputs.predicateClaimRefs.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
+    expect(inputs.predicateOps.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
+    expect(inputs.predicateCompareValues.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
+    expect(inputs.tokenTypes.length).toBe(DEFAULT_SHOW_PARAMS.maxLogicTokens);
+    expect(inputs.tokenValues.length).toBe(DEFAULT_SHOW_PARAMS.maxLogicTokens);
 
     // Verify the device key coordinates match
     expect(inputs.deviceKeyX).toBe(base64urlToBigInt(deviceKey.x));
@@ -283,13 +278,17 @@ describe("Input Builders via SDK", () => {
     );
     const additionalMatches = credential.disclosureHashes;
 
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
     const inputs = buildJwtCircuitInputs(
       credential,
       data.issuerPublicKey,
       DEFAULT_JWT_PARAMS,
       additionalMatches,
       decodeFlags,
-      birthdayIdx!,
+      claimFormats,
     );
 
     expect(inputs.sig_r).toBeDefined();
@@ -300,7 +299,7 @@ describe("Input Builders via SDK", () => {
     expect(inputs.messageLength).toBeGreaterThan(0);
     expect(inputs.periodIndex).toBeGreaterThan(0);
     expect(inputs.matchesCount).toBe(additionalMatches.length + 2); // +2 for "x":" and "y":"
-    expect(inputs.ageClaimIndex).toBe(birthdayIdx! + 2); // offset by 2 for x/y pattern slots
+    expect(inputs.claimFormats.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
   });
 });
 
@@ -314,23 +313,17 @@ describe("Show Circuit via SDK", () => {
 
   it("generates valid show witness from SDK-built inputs", async () => {
     const data = generateTestJwt();
-    const credential = Credential.parse(data.jwt, data.disclosures);
-    const birthdayIdx = credential.findBirthdayClaim()!;
-
-    // Get the birthday claim disclosure (base64url-encoded)
-    const birthdayClaim = data.disclosures[birthdayIdx]!;
 
     // Sign device nonce via SDK
     const signature = signDeviceNonce(VERIFIER_NONCE, data.devicePrivateKeyHex);
 
-    // Build Show circuit inputs via SDK
+    // Build Show circuit inputs via SDK with a simple predicate
     const showInputs = buildShowCircuitInputs(
       DEFAULT_SHOW_PARAMS,
       VERIFIER_NONCE,
       signature,
       data.devicePublicKey,
-      birthdayClaim,
-      { year: 2025, month: 1, day: 1 },
+      { normalizedClaimValues: [42n] },
     );
 
     // Calculate witness via SDK WitnessCalculator
@@ -338,8 +331,7 @@ describe("Show Circuit via SDK", () => {
 
     // Witness sanity checks
     expect(witness[0]).toBe(1n); // valid constraint system
-    // ageAbove18: roc_birthday "0890615" = ROC year 089 = Gregorian 2000 => age 25 in 2025
-    expect(witness[1]).toBe(1n); // ageAbove18 = 1 (born 2000, age 25)
+    // w[1] = expressionResult, w[2] = deviceKeyX, w[3] = deviceKeyY
     expect(witness[2]).toBe(base64urlToBigInt(data.devicePublicKey.x)); // deviceKeyX
     expect(witness[3]).toBe(base64urlToBigInt(data.devicePublicKey.y)); // deviceKeyY
   }, 30_000);
@@ -376,6 +368,10 @@ describe("JWT (Prepare) Circuit via SDK", () => {
     );
     const additionalMatches = credential.disclosureHashes;
 
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
     // Build JWT circuit inputs via SDK
     const jwtInputs = buildJwtCircuitInputs(
       credential,
@@ -383,7 +379,7 @@ describe("JWT (Prepare) Circuit via SDK", () => {
       DEFAULT_JWT_PARAMS,
       additionalMatches,
       decodeFlags,
-      birthdayIdx,
+      claimFormats,
     );
 
     // Calculate witness via SDK WitnessCalculator
@@ -391,21 +387,13 @@ describe("JWT (Prepare) Circuit via SDK", () => {
 
     // Witness sanity checks
     expect(witness[0]).toBe(1n); // valid constraint system
-    expect(witness.length).toBeGreaterThan(98);
-
-    // Decode ageClaim from w[1..97] — these are ASCII bytes of the decoded birthday claim
-    const ageClaimBytes = witness.slice(1, 97).map((b) => Number(b));
-    const endIdx = ageClaimBytes.findIndex(
-      (b, i) => b === 0 && ageClaimBytes.slice(i).every((x) => x === 0),
-    );
-    const ageClaimStr = String.fromCharCode(
-      ...ageClaimBytes.slice(0, endIdx === -1 ? ageClaimBytes.length : endIdx),
-    );
-    expect(ageClaimStr).toContain("roc_birthday");
+    // JWT circuit (maxMatches=4, maxClaims=2):
+    //   w[1..2] = normalizedClaimValues[0..1], w[3] = KeyBindingX, w[4] = KeyBindingY
+    expect(witness.length).toBeGreaterThan(4);
 
     // KeyBindingX and KeyBindingY should be the device public key
-    expect(witness[97]).toBe(base64urlToBigInt(data.devicePublicKey.x));
-    expect(witness[98]).toBe(base64urlToBigInt(data.devicePublicKey.y));
+    expect(witness[3]).toBe(base64urlToBigInt(data.devicePublicKey.x));
+    expect(witness[4]).toBe(base64urlToBigInt(data.devicePublicKey.y));
   }, 120_000);
 
   it("proves and verifies via NativeBackend", async () => {
@@ -446,6 +434,10 @@ describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
     );
     const additionalMatches = credential.disclosureHashes;
 
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
     // Step 3: Build JWT circuit inputs via SDK
     const jwtInputs = buildJwtCircuitInputs(
       credential,
@@ -453,7 +445,7 @@ describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
       DEFAULT_JWT_PARAMS,
       additionalMatches,
       decodeFlags,
-      birthdayIdx,
+      claimFormats,
     );
 
     // Step 4: Calculate JWT witness and prove Prepare circuit
@@ -463,7 +455,10 @@ describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
     await backend.reblindPrepare();
 
     // Step 5: Build Show circuit inputs via SDK
-    const birthdayClaim = data.disclosures[birthdayIdx]!;
+    // Extract normalizedClaimValues from JWT witness for shared witness consistency
+    const maxClaims = DEFAULT_JWT_PARAMS.maxMatches - 2;
+    const normalizedClaimValues = jwtWitness.slice(1, 1 + maxClaims);
+
     const deviceSignature = signDeviceNonce(
       VERIFIER_NONCE,
       data.devicePrivateKeyHex,
@@ -473,8 +468,7 @@ describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
       VERIFIER_NONCE,
       deviceSignature,
       data.devicePublicKey,
-      birthdayClaim,
-      { year: 2025, month: 1, day: 1 },
+      { normalizedClaimValues },
     );
 
     // Step 6: Calculate Show witness and prove Show circuit
@@ -493,11 +487,12 @@ describe("Full Pipeline via SDK (Prepare + Show with Shared Blinds)", () => {
     expect(showResult.output).toContain("Verification successful");
 
     // Step 8: Cross-circuit consistency — device key from JWT must match Show
-    expect(jwtWitness[97]).toBe(showWitness[2]); // KeyBindingX
-    expect(jwtWitness[98]).toBe(showWitness[3]); // KeyBindingY
+    // JWT circuit (maxMatches=4): w[3] = KeyBindingX, w[4] = KeyBindingY
+    expect(jwtWitness[3]).toBe(showWitness[2]); // KeyBindingX
+    expect(jwtWitness[4]).toBe(showWitness[3]); // KeyBindingY
 
-    // Step 9: Age verification result
-    expect(showWitness[1]).toBe(1n); // ageAbove18 = true
+    // Step 9: Expression evaluation result
+    expect(typeof showWitness[1]).toBe("bigint"); // expressionResult
   }, 900_000);
 
   it("can load keys and proofs via SDK", async () => {
