@@ -14,23 +14,24 @@ include "components/expression.circom";
 ///   tokenTypes[i]: 0=REF, 1=AND, 2=OR, 3=NOT
 ///   tokenValues[i]: predicate index for REF, else 0
 template Show(nClaims, maxPredicates, maxLogicTokens, valueBits) {
-    signal input deviceKeyX;
-    signal input deviceKeyY;
-    signal input messageHash;
-    signal input sig_r;
-    signal input sig_s_inverse;
+    signal input deviceKeyX; // Device binding public key x-coordinate.
+    signal input deviceKeyY; // Device binding public key y-coordinate.
+    signal input messageHash; // Scalar-field reduced hash of the verifier nonce.
+    signal input sig_r; // ECDSA signature r value over messageHash.
+    signal input sig_s_inverse; // Multiplicative inverse of signature s in the scalar field.
 
     // Generalized predicate phase inputs
-    signal input predicateLen;
-    signal input claimValues[nClaims];
-    signal input predicateClaimRefs[maxPredicates];
-    signal input predicateOps[maxPredicates];
-    signal input predicateCompareValues[maxPredicates];
+    signal input predicateLen; // Number of active predicates.
+    signal input claimValues[nClaims]; // Normalized claim values addressable by reference index.
+    signal input predicateClaimRefs[maxPredicates]; // Left-hand claim reference per predicate.
+    signal input predicateOps[maxPredicates]; // Operator per predicate: 0<=, 1>=, 2==.
+    signal input predicateRhsIsRef[maxPredicates]; // Right-hand side (RHS) mode per predicate: 0=literal, 1=claim reference.
+    signal input predicateRhsValues[maxPredicates]; // RHS operand: claim index when predicateRhsIsRef is 1, literal value when 0.
 
     // Logical expression over predicate results in Reverse Polish Notation.
-    signal input tokenTypes[maxLogicTokens];
-    signal input tokenValues[maxLogicTokens];
-    signal input exprLen;
+    signal input tokenTypes[maxLogicTokens]; // Postfix token kind: 0=REF, 1=AND, 2=OR, 3=NOT.
+    signal input tokenValues[maxLogicTokens]; // Token payload: predicate index for REF tokens.
+    signal input exprLen; // Number of active expression tokens.
 
     // Output: result of the logical expression over all predicate results
     signal output expressionResult;
@@ -48,7 +49,8 @@ template Show(nClaims, maxPredicates, maxLogicTokens, valueBits) {
     expressionEval.predicateLen <== predicateLen;
     expressionEval.predicateClaimRefs <== predicateClaimRefs;
     expressionEval.predicateOps <== predicateOps;
-    expressionEval.predicateCompareValues <== predicateCompareValues;
+    expressionEval.predicateRhsIsRef <== predicateRhsIsRef;
+    expressionEval.predicateRhsValues <== predicateRhsValues;
     expressionEval.tokenTypes <== tokenTypes;
     expressionEval.tokenValues <== tokenValues;
     expressionEval.exprLen <== exprLen;

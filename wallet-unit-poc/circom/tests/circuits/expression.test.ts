@@ -26,7 +26,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 3,
       predicateClaimRefs: [0, 1, 2],
       predicateOps: [0, 2, 1],
-      predicateCompareValues: [20080101, 528, 50000],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 528, 50000],
       tokenTypes: [0, 0, 1, 0, 1, 0, 0, 0],
       tokenValues: [0, 1, 0, 2, 0, 0, 0, 0],
       exprLen: 5,
@@ -53,7 +54,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 3,
       predicateClaimRefs: [0, 1, 2],
       predicateOps: [0, 2, 1],
-      predicateCompareValues: [20080101, 528, 50000],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 528, 50000],
       // REF(0), REF(1), NOT, OR
       tokenTypes: [0, 0, 3, 2, 0, 0, 0, 0],
       tokenValues: [0, 1, 0, 0, 0, 0, 0, 0],
@@ -80,7 +82,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 3,
       predicateClaimRefs: [0, 1, 2],
       predicateOps: [0, 2, 1],
-      predicateCompareValues: [20080101, 528, 50000],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 528, 50000],
       tokenTypes: [0, 0, 1, 0, 0, 0, 0, 0],
       tokenValues: [0, 1, 0, 0, 0, 0, 0, 0],
       exprLen: 3,
@@ -106,7 +109,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 3,
       predicateClaimRefs: [0, 1, 2],
       predicateOps: [0, 2, 1],
-      predicateCompareValues: [20080101, 528, 50000],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 528, 50000],
       tokenTypes: [0, 0, 2, 0, 0, 0, 0, 0],
       tokenValues: [0, 1, 0, 0, 0, 0, 0, 0],
       exprLen: 3,
@@ -131,7 +135,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 3,
       predicateClaimRefs: [0, 1, 2],
       predicateOps: [0, 2, 1],
-      predicateCompareValues: [20080101, 528, 50000],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 528, 50000],
       tokenTypes: [0, 3, 3, 0, 0, 0, 0, 0],
       tokenValues: [0, 0, 0, 0, 0, 0, 0, 0],
       exprLen: 3,
@@ -154,7 +159,8 @@ describe("ExpressionEvaluator", () => {
         predicateLen: 3,
         predicateClaimRefs: [0, 1, 2],
         predicateOps: [0, 2, 1],
-        predicateCompareValues: [20080101, 528, 50000],
+        predicateRhsIsRef: [0, 0, 0],
+        predicateRhsValues: [20080101, 528, 50000],
         // REF(0), AND is malformed because AND needs two operands.
         tokenTypes: [0, 1, 0, 0, 0, 0, 0, 0],
         tokenValues: [0, 0, 0, 0, 0, 0, 0, 0],
@@ -173,7 +179,8 @@ describe("ExpressionEvaluator", () => {
         predicateLen: 3,
         predicateClaimRefs: [0, 1, 2],
         predicateOps: [0, 2, 1],
-        predicateCompareValues: [20080101, 528, 50000],
+        predicateRhsIsRef: [0, 0, 0],
+        predicateRhsValues: [20080101, 528, 50000],
         tokenTypes: [0, 0, 0, 0, 0, 0, 0, 0],
         tokenValues: [3, 0, 0, 0, 0, 0, 0, 0],
         exprLen: 1,
@@ -188,7 +195,8 @@ describe("ExpressionEvaluator", () => {
         predicateLen: 3,
         predicateClaimRefs: [0, 1, 2],
         predicateOps: [0, 2, 1],
-        predicateCompareValues: [20080101, 528, 50000],
+        predicateRhsIsRef: [0, 0, 0],
+        predicateRhsValues: [20080101, 528, 50000],
         tokenTypes: [0, 0, 0, 0, 0, 0, 0, 0],
         tokenValues: [0, 0, 0, 0, 0, 0, 0, 0],
         exprLen: 0,
@@ -206,7 +214,8 @@ describe("ExpressionEvaluator", () => {
       predicateLen: 1,
       predicateClaimRefs: [0, 99, 77],
       predicateOps: [0, 7, 9],
-      predicateCompareValues: [20080101, 12345, 99999],
+      predicateRhsIsRef: [0, 0, 0],
+      predicateRhsValues: [20080101, 12345, 99999],
       tokenTypes: [0, 0, 0, 0, 0, 0, 0, 0],
       tokenValues: [0, 0, 0, 0, 0, 0, 0, 0],
       exprLen: 1,
@@ -218,6 +227,55 @@ describe("ExpressionEvaluator", () => {
     const predicateResults = signals.predicateResults as bigint[];
 
     assert.deepStrictEqual(predicateResults.slice(0, 3), [1n, 0n, 0n]);
+    assert.strictEqual(signals.finalResult, 1n);
+  });
+
+  it("supports using another claim reference as the predicate RHS", async () => {
+    // pred0: claim[0] >= claim[1] => 25 >= 18 => true
+    // Expression: REF(0)
+    const witness = await circuit.calculateWitness({
+      claimValues: [25, 18, 999],
+      predicateLen: 1,
+      predicateClaimRefs: [0, 0, 0],
+      predicateOps: [1, 2, 2],
+      predicateRhsIsRef: [1, 0, 0],
+      predicateRhsValues: [1, 0, 0],
+      tokenTypes: [0, 0, 0, 0, 0, 0, 0, 0],
+      tokenValues: [0, 0, 0, 0, 0, 0, 0, 0],
+      exprLen: 1,
+    });
+
+    await circuit.expectConstraintPass(witness);
+
+    const signals = await circuit.readWitnessSignals(witness, ["predicateResults", "finalResult"]);
+    const predicateResults = signals.predicateResults as bigint[];
+
+    assert.strictEqual(predicateResults[0], 1n);
+    assert.strictEqual(signals.finalResult, 1n);
+  });
+
+  it("supports mixed RHS modes across predicates in one expression", async () => {
+    // pred0: claim[0] >= claim[1] => 30 >= 18 => true   (RHS is claim reference)
+    // pred1: claim[2] == 59999    => 60000 == 59999 => false (RHS is literal)
+    // Expression: REF(0) REF(1) OR
+    const witness = await circuit.calculateWitness({
+      claimValues: [30, 18, 60000],
+      predicateLen: 2,
+      predicateClaimRefs: [0, 2, 0],
+      predicateOps: [1, 2, 2],
+      predicateRhsIsRef: [1, 0, 0],
+      predicateRhsValues: [1, 59999, 0],
+      tokenTypes: [0, 0, 2, 0, 0, 0, 0, 0],
+      tokenValues: [0, 1, 0, 0, 0, 0, 0, 0],
+      exprLen: 3,
+    });
+
+    await circuit.expectConstraintPass(witness);
+
+    const signals = await circuit.readWitnessSignals(witness, ["predicateResults", "finalResult"]);
+    const predicateResults = signals.predicateResults as bigint[];
+
+    assert.deepStrictEqual(predicateResults.slice(0, 2), [1n, 0n]);
     assert.strictEqual(signals.finalResult, 1n);
   });
 });

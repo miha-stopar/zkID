@@ -7,20 +7,21 @@ include "eval-predicate.circom";
 /// @notice Evaluates an array of atomic predicates over a fixed-size claim array.
 /// @dev Claim references are integer indices into `claimValues`.
 /// @dev Predicate tuple encoding per slot i:
-/// @dev   [predicateClaimRefs[i], predicateOps[i], predicateCompareValues[i]]
+/// @dev   [predicateClaimRefs[i], predicateOps[i], rhsIsRef[i], rhsRef[i], rhsValue[i]]
 /// @dev Operator encoding:
 /// @dev   0 = <=
 /// @dev   1 = >=
 /// @dev   2 = ==
 template EvalPredicates(N_CLAIMS, MAX_PREDICATES, VALUE_BITS) {
-    signal input claimValues[N_CLAIMS];
+    signal input claimValues[N_CLAIMS]; // Canonically normalized claim values.
 
     // Number of active predicate tuples in [0, MAX_PREDICATES]
-    signal input predicateLen;
+    signal input predicateLen; // Number of active predicate tuples.
 
-    signal input predicateClaimRefs[MAX_PREDICATES];
-    signal input predicateOps[MAX_PREDICATES];
-    signal input predicateCompareValues[MAX_PREDICATES];
+    signal input predicateClaimRefs[MAX_PREDICATES]; // Left-hand claim reference per predicate.
+    signal input predicateOps[MAX_PREDICATES]; // Operator per predicate: 0<=, 1>=, 2==.
+    signal input predicateRhsIsRef[MAX_PREDICATES]; // Right-hand side (RHS) mode: 0=literal, 1=claim reference.
+    signal input predicateRhsValues[MAX_PREDICATES]; // RHS operand: claim index when predicateRhsIsRef is 1, literal value when 0.
 
     signal output predicateResults[MAX_PREDICATES];
 
@@ -30,6 +31,17 @@ template EvalPredicates(N_CLAIMS, MAX_PREDICATES, VALUE_BITS) {
     signal refCount[MAX_PREDICATES][N_CLAIMS + 1];
     signal refAccum[MAX_PREDICATES][N_CLAIMS + 1];
     signal selectedClaimValues[MAX_PREDICATES];
+    component rhsRefEq[MAX_PREDICATES][N_CLAIMS];
+    signal rhsRefSelected[MAX_PREDICATES][N_CLAIMS];
+    signal rhsRefProduct[MAX_PREDICATES][N_CLAIMS];
+    signal rhsRefCount[MAX_PREDICATES][N_CLAIMS + 1];
+    signal rhsRefAccum[MAX_PREDICATES][N_CLAIMS + 1];
+    signal selectedRhsRefValues[MAX_PREDICATES];
+    signal rhsIsRef[MAX_PREDICATES];
+    signal rhsRefActive[MAX_PREDICATES];
+    signal literalRhsValue[MAX_PREDICATES];
+    signal refRhsValue[MAX_PREDICATES];
+    signal selectedCompareValues[MAX_PREDICATES];
     component activeLt[MAX_PREDICATES];
     signal isActive[MAX_PREDICATES];
     signal effectiveClaimValue[MAX_PREDICATES];
@@ -49,9 +61,14 @@ template EvalPredicates(N_CLAIMS, MAX_PREDICATES, VALUE_BITS) {
         activeLt[i].in[0] <== i;
         activeLt[i].in[1] <== predicateLen;
         isActive[i] <== activeLt[i].out;
+        rhsIsRef[i] <== predicateRhsIsRef[i];
+        rhsIsRef[i] * (rhsIsRef[i] - 1) === 0;
+        rhsRefActive[i] <== isActive[i] * rhsIsRef[i];
 
         refCount[i][0] <== 0;
         refAccum[i][0] <== 0;
+        rhsRefCount[i][0] <== 0;
+        rhsRefAccum[i][0] <== 0;
 
         for (var j = 0; j < N_CLAIMS; j++) {
             claimRefEq[i][j] = IsEqual();
@@ -62,15 +79,29 @@ template EvalPredicates(N_CLAIMS, MAX_PREDICATES, VALUE_BITS) {
             refProduct[i][j] <== refSelected[i][j] * claimValues[j];
             refCount[i][j + 1] <== refCount[i][j] + refSelected[i][j];
             refAccum[i][j + 1] <== refAccum[i][j] + refProduct[i][j];
+
+            rhsRefEq[i][j] = IsEqual();
+            rhsRefEq[i][j].in[0] <== predicateRhsValues[i];
+            rhsRefEq[i][j].in[1] <== j;
+
+            rhsRefSelected[i][j] <== rhsRefActive[i] * rhsRefEq[i][j].out;
+            rhsRefProduct[i][j] <== rhsRefSelected[i][j] * claimValues[j];
+            rhsRefCount[i][j + 1] <== rhsRefCount[i][j] + rhsRefSelected[i][j];
+            rhsRefAccum[i][j + 1] <== rhsRefAccum[i][j] + rhsRefProduct[i][j];
         }
 
         // Active predicates must reference exactly one valid claim index.
         // Inactive predicates must reference none (count 0).
         refCount[i][N_CLAIMS] - isActive[i] === 0;
+        rhsRefCount[i][N_CLAIMS] - rhsRefActive[i] === 0;
 
         selectedClaimValues[i] <== refAccum[i][N_CLAIMS];
+        selectedRhsRefValues[i] <== rhsRefAccum[i][N_CLAIMS];
+        literalRhsValue[i] <== (1 - rhsIsRef[i]) * predicateRhsValues[i];
+        refRhsValue[i] <== rhsIsRef[i] * selectedRhsRefValues[i];
+        selectedCompareValues[i] <== literalRhsValue[i] + refRhsValue[i];
         effectiveClaimValue[i] <== isActive[i] * selectedClaimValues[i];
-        effectiveCompareValue[i] <== isActive[i] * predicateCompareValues[i];
+        effectiveCompareValue[i] <== isActive[i] * selectedCompareValues[i];
         effectiveOp[i] <== isActive[i] * predicateOps[i] + (1 - isActive[i]) * 2;
 
         predicateEval[i] = EvalPredicate(VALUE_BITS);

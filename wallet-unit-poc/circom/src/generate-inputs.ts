@@ -72,7 +72,7 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
   showInputs.predicateLen = 1n;
   showInputs.predicateClaimRefs[0] = 0n;
   showInputs.predicateOps[0] = BigInt(OP_LE);
-  showInputs.predicateCompareValues[0] = 1070101n;
+  showInputs.predicateRhsValues[0] = 1070101n;
   showInputs.tokenTypes[0] = 0n;
   showInputs.tokenValues[0] = 0n;
   showInputs.exprLen = 1n;
