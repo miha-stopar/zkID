@@ -82,6 +82,12 @@ pub fn parse_jwt_inputs(
 /// Matches the current `Show(nClaims, maxPredicates, maxLogicTokens, valueBits)`
 /// template: predicates + RPN logic expression replaced the old
 /// `claim/currentYear/currentMonth/currentDay` interface.
+///
+/// Predicate RHS encoding uses a single `predicateRhsValues[]` array:
+/// - when `predicateRhsIsRef[i] = 0`, `predicateRhsValues[i]` is a literal value
+/// - when `predicateRhsIsRef[i] = 1`, `predicateRhsValues[i]` is a claim index
+///
+/// This supports both attribute-to-literal and attribute-to-attribute comparisons.
 pub fn parse_show_inputs(
     json_value: &Value,
 ) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
@@ -98,7 +104,8 @@ pub fn parse_show_inputs(
         ("claimValues", FieldParser::BigIntArray),
         ("predicateClaimRefs", FieldParser::BigIntArray),
         ("predicateOps", FieldParser::BigIntArray),
-        ("predicateCompareValues", FieldParser::BigIntArray),
+        ("predicateRhsIsRef", FieldParser::BigIntArray),
+        ("predicateRhsValues", FieldParser::BigIntArray),
         ("tokenTypes", FieldParser::BigIntArray),
         ("tokenValues", FieldParser::BigIntArray),
     ];
