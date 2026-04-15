@@ -360,7 +360,7 @@ describe("Show Circuit - Device Binding Verification", () => {
       assert.strictEqual(signals.expressionResult, 1n, "Expected both predicates to hold under AND");
     });
 
-    it("returns true when RHS uses another claim reference", async () => {
+    it("compares a claim value against another claim value within the same credential", async () => {
       const mockData = await generateMockData({
         circuitParams: [2048, 2000, 6, 50, 128],
       });
