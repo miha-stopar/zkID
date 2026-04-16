@@ -70,7 +70,7 @@ cargo run --release -- benchmark-all
 
 ## Latest benchmark results
 
-MacBook Pro M4, 24 GB RAM. Generated against the current generalized-predicates
+MacBook Pro M5, 24 GB RAM. Generated against the current generalized-predicates
 circuits (`Show(2, 2, 8, 64)` + `JWT(maxMsg, ...)`) with the example predicate
 `roc_birthday <= 1070101`.
 
@@ -78,17 +78,17 @@ circuits (`Show(2, 2, 8, 64)` + `JWT(maxMsg, ...)`) with the example predicate
 
 | Step            |    1k |    2k |    4k |    8k |
 | --------------- | ----: | ----: | ----: | ----: |
-| Prove Prepare   | 1,128 | 1,867 | 3,638 | 7,365 |
-| Reblind Prepare |   365 |   690 | 1,438 | 3,280 |
-| Prove Show      |    55 |    52 |    54 |    62 |
-| Reblind Show    |    25 |    24 |    25 |    24 |
-| Verify Prepare  |   645 | 1,036 | 2,044 | 4,023 |
-| Verify Show     |    16 |    15 |    16 |    17 |
+| Prove Prepare   | 1,119 | 1,617 | 3,344 | 6,999 |
+| Reblind Prepare |   337 |   638 | 1,257 | 2,662 |
+| Prove Show      |    57 |    59 |    58 |    74 |
+| Reblind Show    |    26 |    24 |    25 |    25 |
+| Verify Prepare  |   740 | 1,170 | 2,229 | 4,769 |
+| Verify Show     |    19 |    18 |    18 |    19 |
 
 ### Sizes
 
-| Artifact         |        1k |        2k |        4k |          8k |
-| ---------------- | --------: | --------: | --------: | ----------: |
+| Artifact            |        1k |        2k |        4k |          8k |
+| ------------------- | --------: | --------: | --------: | ----------: |
 | Prepare Proving Key | 257.22 MB | 407.18 MB | 773.90 MB | 1,512.03 MB |
 | Show Proving Key    |   2.96 MB |   2.96 MB |   2.96 MB |     2.96 MB |
 | Prepare Proof       |  75.93 KB | 109.41 KB | 175.90 KB |   308.38 KB |
