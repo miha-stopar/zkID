@@ -27,7 +27,25 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
     ["KeyBindingX", "KeyBindingY", "normalizedClaimValues"]
   >;
 
-  let showCircuit: WitnessTester<["deviceKeyX", "deviceKeyY", "sig_r", "sig_s_inverse", "messageHash"], []>;
+  let showCircuit: WitnessTester<
+    [
+      "deviceKeyX",
+      "deviceKeyY",
+      "sig_r",
+      "sig_s_inverse",
+      "messageHash",
+      "predicateLen",
+      "claimValues",
+      "predicateClaimRefs",
+      "predicateOps",
+      "predicateRhsIsRef",
+      "predicateRhsValues",
+      "tokenTypes",
+      "tokenValues",
+      "exprLen"
+    ],
+    []
+  >;
 
   before(async () => {
     const RECOMPILE = true;
@@ -74,7 +92,7 @@ describe("Complete Flow: Register (JWT) → Show Circuit", () => {
       showInputs.predicateLen = 1n;
       showInputs.predicateClaimRefs[0] = 0n;
       showInputs.predicateOps[0] = 0n;
-      showInputs.predicateCompareValues[0] = 1070101n;
+      showInputs.predicateRhsValues[0] = 1070101n;
       showInputs.tokenTypes[0] = 0n;
       showInputs.tokenValues[0] = 0n;
       showInputs.exprLen = 1n;

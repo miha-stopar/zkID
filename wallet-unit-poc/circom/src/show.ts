@@ -93,7 +93,8 @@ export function generateShowInputs(
   claimValues: bigint[];
   predicateClaimRefs: bigint[];
   predicateOps: bigint[];
-  predicateCompareValues: bigint[];
+  predicateRhsIsRef: bigint[];
+  predicateRhsValues: bigint[];
   tokenTypes: bigint[];
   tokenValues: bigint[];
   exprLen: bigint;
@@ -150,7 +151,8 @@ export function generateShowInputs(
   const claimValues = Array(params.nClaims).fill(0n);
   const predicateClaimRefs = Array(params.maxPredicates).fill(0n);
   const predicateOps = Array(params.maxPredicates).fill(2n);
-  const predicateCompareValues = Array(params.maxPredicates).fill(primaryClaimValue);
+  const predicateRhsIsRef = Array(params.maxPredicates).fill(0n);
+  const predicateRhsValues = Array(params.maxPredicates).fill(primaryClaimValue);
 
   assert.ok(
     normalizedValues.length <= params.nClaims,
@@ -220,7 +222,8 @@ export function generateShowInputs(
     claimValues,
     predicateClaimRefs,
     predicateOps,
-    predicateCompareValues,
+    predicateRhsIsRef,
+    predicateRhsValues,
     tokenTypes,
     tokenValues,
     exprLen,

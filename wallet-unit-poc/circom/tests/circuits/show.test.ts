@@ -18,7 +18,8 @@ describe("Show Circuit - Device Binding Verification", () => {
       "claimValues",
       "predicateClaimRefs",
       "predicateOps",
-      "predicateCompareValues",
+      "predicateRhsIsRef",
+      "predicateRhsValues",
       "tokenTypes",
       "tokenValues",
       "exprLen"
@@ -148,10 +149,10 @@ describe("Show Circuit - Device Binding Verification", () => {
       inputs.predicateLen = 2n;
       inputs.predicateClaimRefs[0] = 0n;
       inputs.predicateOps[0] = 2n;
-      inputs.predicateCompareValues[0] = 1n;
+      inputs.predicateRhsValues[0] = 1n;
       inputs.predicateClaimRefs[1] = 1n;
       inputs.predicateOps[1] = 2n;
-      inputs.predicateCompareValues[1] = 1n;
+      inputs.predicateRhsValues[1] = 1n;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -183,7 +184,7 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       // pred0: claimValue <= 970331
       inputs.predicateOps[0] = 0n;
-      inputs.predicateCompareValues[0] = age18CutoffRoc;
+      inputs.predicateRhsValues[0] = age18CutoffRoc;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -206,7 +207,7 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       // pred0: claimValue <= 970331
       inputs.predicateOps[0] = 0n;
-      inputs.predicateCompareValues[0] = age18CutoffRoc;
+      inputs.predicateRhsValues[0] = age18CutoffRoc;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -235,7 +236,7 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       // pred0: claimValue >= 10000
       inputs.predicateOps[0] = 1n;
-      inputs.predicateCompareValues[0] = 10000n;
+      inputs.predicateRhsValues[0] = 10000n;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -270,7 +271,7 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       // pred0: claimValue == pack("TW")
       inputs.predicateOps[0] = 2n;
-      inputs.predicateCompareValues[0] = packedNationality;
+      inputs.predicateRhsValues[0] = packedNationality;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -294,7 +295,7 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       // pred0: claimValue == 1
       inputs.predicateOps[0] = 2n;
-      inputs.predicateCompareValues[0] = 1n;
+      inputs.predicateRhsValues[0] = 1n;
 
       const witness = await circuit.calculateWitness(inputs);
       await circuit.expectConstraintPass(witness);
@@ -335,12 +336,12 @@ describe("Show Circuit - Device Binding Verification", () => {
       // pred0: claim[0] <= 970331  (age >= 18 as of 2026-03-31)
       inputs.predicateClaimRefs[0] = 0n;
       inputs.predicateOps[0] = 0n;
-      inputs.predicateCompareValues[0] = 970331n;
+      inputs.predicateRhsValues[0] = 970331n;
 
       // pred1: claim[1] >= 10000
       inputs.predicateClaimRefs[1] = 1n;
       inputs.predicateOps[1] = 1n;
-      inputs.predicateCompareValues[1] = 10000n;
+      inputs.predicateRhsValues[1] = 10000n;
       inputs.predicateLen = 2n;
 
       // Expression: pred0 pred1 AND
@@ -357,6 +358,46 @@ describe("Show Circuit - Device Binding Verification", () => {
 
       const signals = await circuit.readWitnessSignals(witness, ["expressionResult"]);
       assert.strictEqual(signals.expressionResult, 1n, "Expected both predicates to hold under AND");
+    });
+
+    it("compares a claim value against another claim value within the same credential", async () => {
+      const mockData = await generateMockData({
+        circuitParams: [2048, 2000, 6, 50, 128],
+      });
+
+      const verifierNonce = "multi-claim-ref-rhs-check";
+      const deviceSignature = signDeviceNonce(verifierNonce, mockData.devicePrivateKey);
+
+      const claimA = encodeClaim("age_now", "25");
+      const claimB = encodeClaim("required_age", "18");
+      const params = generateShowCircuitParams(mockData.circuitParams);
+      const inputs = generateShowInputs(
+        params,
+        verifierNonce,
+        deviceSignature,
+        mockData.deviceKey,
+        [claimA, claimB],
+        [],
+        [25n, 18n]
+      );
+
+      // pred0: claim[0] >= claim[1]
+      inputs.predicateLen = 1n;
+      inputs.predicateClaimRefs[0] = 0n;
+      inputs.predicateOps[0] = 1n;
+      inputs.predicateRhsIsRef[0] = 1n;
+      inputs.predicateRhsValues[0] = 1n;
+
+      // Expression: pred0
+      inputs.tokenTypes[0] = 0n;
+      inputs.tokenValues[0] = 0n;
+      inputs.exprLen = 1n;
+
+      const witness = await circuit.calculateWitness(inputs);
+      await circuit.expectConstraintPass(witness);
+
+      const signals = await circuit.readWitnessSignals(witness, ["expressionResult"]);
+      assert.strictEqual(signals.expressionResult, 1n, "Expected claim[0] >= claim[1] to evaluate true");
     });
 
     it("accepts both encodedClaims and normalizedClaimValues when they agree", async () => {
