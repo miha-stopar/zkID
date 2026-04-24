@@ -463,3 +463,104 @@ pub fn calculate_show_witness_indices(n_claims: usize) -> ShowWitnessLayout {
         claim_values_len: n_claims,
     }
 }
+
+/// Public-output layout for [`Prepare2SdJwt`](../../circom/circuits/prepare_2sdjwt.circom):
+/// `normalizedClaimValuesAll[0..2*maxClaims]`, then `KeyBindingX`, `KeyBindingY`
+/// (verified with `prepare_2vc_1k.sym` under bn128 — topology matches secq).
+pub fn calculate_prepare_2vc_output_indices(
+    max_matches: usize,
+    _max_claims_length: usize,
+) -> JwtOutputLayout {
+    let per_vc = max_matches.saturating_sub(2);
+    let claim_values_len = per_vc.saturating_mul(2);
+    let claim_values_start = 1;
+    let keybinding_x_index = claim_values_start + claim_values_len;
+    let keybinding_y_index = keybinding_x_index + 1;
+
+    JwtOutputLayout {
+        claim_values_start,
+        claim_values_len,
+        keybinding_x_index,
+        keybinding_y_index,
+    }
+}
+
+/// Nested JSON: `{ "vc0": { …JWT fields… }, "vc1": { … } }` (same shape as single JWT inputs per slot).
+pub fn parse_prepare_2vc_inputs(
+    json_value: &Value,
+) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
+    let vc0 = json_value
+        .get("vc0")
+        .ok_or(SynthesisError::AssignmentMissing)?;
+    let vc1 = json_value
+        .get("vc1")
+        .ok_or(SynthesisError::AssignmentMissing)?;
+    let mut out = parse_jwt_inputs_with_suffix(vc0, 0)?;
+    out.extend(parse_jwt_inputs_with_suffix(vc1, 1)?);
+    Ok(out)
+}
+
+fn parse_jwt_inputs_with_suffix(
+    json_value: &Value,
+    slot: u8,
+) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
+    let inner = parse_jwt_inputs(json_value)?;
+    let suf = slot.to_string();
+    Ok(inner
+        .into_iter()
+        .map(|(k, v)| (format!("{k}{suf}"), v))
+        .collect())
+}
+
+/// JSON for witnesscalc on `prepare_2vc_*` (per-slot `claims0` / `matchSubstring0`, …).
+pub fn hashmap_to_json_string_prepare_2vc(
+    inputs: &HashMap<String, Vec<BigInt>>,
+    max_matches: usize,
+    max_substring_length: usize,
+    max_claims_length: usize,
+) -> Result<String, SynthesisError> {
+    use serde_json::json;
+
+    let max_claims = max_matches.saturating_sub(2);
+    let mut json_map = serde_json::Map::new();
+
+    let dims_claims = (max_claims, max_claims_length);
+    let dims_matches = (max_matches, max_substring_length);
+
+    for slot in 0u8..=1 {
+        let suf = slot.to_string();
+        for (base, (rows, cols)) in [
+            ("claims", dims_claims),
+            ("matchSubstring", dims_matches),
+        ] {
+            let key = format!("{base}{suf}");
+            let values = inputs
+                .get(&key)
+                .ok_or(SynthesisError::AssignmentMissing)?;
+            let mut array_2d = Vec::with_capacity(rows);
+            for i in 0..rows {
+                let start = i * cols;
+                let end = start + cols;
+                if end > values.len() {
+                    return Err(SynthesisError::Unsatisfiable);
+                }
+                let row: Vec<String> = values[start..end]
+                    .iter()
+                    .map(|bigint| bigint.to_string())
+                    .collect();
+                array_2d.push(json!(row));
+            }
+            json_map.insert(key, json!(array_2d));
+        }
+    }
+
+    for (key, values) in inputs.iter() {
+        if key.starts_with("claims") || key.starts_with("matchSubstring") {
+            continue;
+        }
+        let string_array: Vec<String> = values.iter().map(|bigint| bigint.to_string()).collect();
+        json_map.insert(key.clone(), json!(string_array));
+    }
+
+    serde_json::to_string(&json_map).map_err(|_| SynthesisError::Unsatisfiable)
+}

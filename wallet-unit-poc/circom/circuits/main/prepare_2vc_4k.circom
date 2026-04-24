@@ -1,0 +1,5 @@
+pragma circom 2.2.3;
+
+include "../prepare_2sdjwt.circom";
+
+component main = Prepare2SdJwt(4096, 4000, 4, 50, 128);

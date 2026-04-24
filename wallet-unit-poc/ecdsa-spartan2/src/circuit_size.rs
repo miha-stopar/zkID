@@ -70,6 +70,14 @@ impl CircuitSize {
     pub fn n_claims(self) -> usize {
         self.max_matches() - 2
     }
+
+    /// `Show(4, …)` for Track A two SD-JWTs (`maxMatches - 2` per VC, times two).
+    pub const TRACK_A_2VC_N_CLAIMS: usize = 4;
+
+    /// Circom / witnesscalc base name for [`Prepare2SdJwt`](../../circom/circuits/prepare_2sdjwt.circom).
+    pub fn prepare_2vc_circuit_name(self) -> String {
+        format!("prepare_2vc_{}", self.as_str())
+    }
 }
 
 impl Default for CircuitSize {

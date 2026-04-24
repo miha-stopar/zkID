@@ -24,6 +24,30 @@ fn main() {
         }
     }
 
+    for size in ["1k", "2k", "4k", "8k"] {
+        println!(
+            "cargo::rustc-check-cfg=cfg(has_circuit_prepare_2vc_{})",
+            size
+        );
+        let cpp_file = circuits_dir.join(format!("prepare_2vc_{}.cpp", size));
+        if cpp_file.exists() {
+            println!("cargo:rustc-cfg=has_circuit_prepare_2vc_{}", size);
+            println!(
+                "cargo:warning=Found compiled circuit: prepare_2vc_{}.cpp — Track A Prepare2Vc size '{}'",
+                size, size
+            );
+        }
+    }
+
+    let show_2vc_cpp = circuits_dir.join("show_2vc.cpp");
+    if show_2vc_cpp.exists() {
+        println!("cargo::rustc-check-cfg=cfg(has_circuit_show_2vc)");
+        println!("cargo:rustc-cfg=has_circuit_show_2vc");
+        println!("cargo:warning=Found compiled circuit: show_2vc.cpp — Track A Show(4,…)");
+    } else {
+        println!("cargo::rustc-check-cfg=cfg(has_circuit_show_2vc)");
+    }
+
     // Only run witnesscalc build when the native-witness feature is enabled.
     // WASM builds use JavaScript witness generation instead.
     #[cfg(feature = "native-witness")]

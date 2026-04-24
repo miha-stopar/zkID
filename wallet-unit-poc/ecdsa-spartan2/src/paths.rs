@@ -113,6 +113,42 @@ impl PathConfig {
         }
     }
 
+    /// R1CS for Track A dual-JWT Prepare (`prepare_2vc_1k`, …).
+    pub fn r1cs_path_prepare_2vc(&self) -> PathBuf {
+        let name = self.circuit_size.prepare_2vc_circuit_name();
+        if self.is_mobile {
+            self.base_dir
+                .join("../circom/build")
+                .join(&name)
+                .join(format!("{}_js", name))
+                .join(format!("{}.r1cs", name))
+        } else {
+            self.base_dir
+                .join("../circom/build")
+                .join(&name)
+                .join(format!("{}_js", name))
+                .join(format!("{}.r1cs", name))
+        }
+    }
+
+    /// R1CS for Track A `Show(4,…)` (same artifact for all JWT message sizes).
+    pub fn r1cs_path_show_2vc(&self) -> PathBuf {
+        let name = "show_2vc";
+        if self.is_mobile {
+            self.base_dir
+                .join("../circom/build")
+                .join(name)
+                .join(format!("{name}_js"))
+                .join(format!("{name}.r1cs"))
+        } else {
+            self.base_dir
+                .join("../circom/build")
+                .join(name)
+                .join(format!("{name}_js"))
+                .join(format!("{name}.r1cs"))
+        }
+    }
+
     /// Resolve a key file path (proving/verifying keys).
     ///
     /// On mobile the name is used verbatim.
@@ -171,6 +207,16 @@ pub mod keys {
     pub const SHOW_WITNESS: &str = "show_witness.bin";
     pub const SHOW_INSTANCE: &str = "show_instance.bin";
     pub const SHARED_BLINDS: &str = "shared_blinds.bin";
+    pub const PREPARE_2VC_PROVING_KEY: &str = "prepare_2vc_proving.key";
+    pub const PREPARE_2VC_VERIFYING_KEY: &str = "prepare_2vc_verifying.key";
+    pub const PREPARE_2VC_PROOF: &str = "prepare_2vc_proof.bin";
+    pub const PREPARE_2VC_WITNESS: &str = "prepare_2vc_witness.bin";
+    pub const PREPARE_2VC_INSTANCE: &str = "prepare_2vc_instance.bin";
+    pub const SHOW_2VC_PROVING_KEY: &str = "show_2vc_proving.key";
+    pub const SHOW_2VC_VERIFYING_KEY: &str = "show_2vc_verifying.key";
+    pub const SHOW_2VC_PROOF: &str = "show_2vc_proof.bin";
+    pub const SHOW_2VC_WITNESS: &str = "show_2vc_witness.bin";
+    pub const SHOW_2VC_INSTANCE: &str = "show_2vc_instance.bin";
 }
 
 #[cfg(test)]

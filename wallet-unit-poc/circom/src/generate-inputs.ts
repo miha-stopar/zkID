@@ -3,6 +3,7 @@ import * as path from "path";
 import * as nodeCrypto from "crypto";
 
 import { generateMockData } from "./mock-vc-generator";
+import type { ShowCircuitParams } from "./show";
 import { generateShowCircuitParams, generateShowInputs, signDeviceNonce } from "./show";
 import { PredicateFormat } from "./predicate-types";
 
@@ -97,6 +98,62 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
 
   console.log(`  JWT  inputs → ${path.relative(circomDir, jwtOutputPath)}`);
   console.log(`  Show inputs → ${path.relative(circomDir, showOutputPath)}`);
+
+  // Track A (Option 2): second VC shares device binding with the first.
+  const mockB = await generateMockData({
+    circuitParams: params,
+    targetPayloadLength,
+    claimFormats,
+    claims: [
+      { key: "name", value: "Jane Roe" },
+      { key: "roc_birthday", value: "0920101" },
+    ],
+    devicePrivateKey: mockData.devicePrivateKey,
+    deviceKey: mockData.deviceKey,
+  });
+
+  const prepare2vcDir = isDefault
+    ? path.join(circomDir, "inputs", "prepare_2vc")
+    : path.join(circomDir, "inputs", "prepare_2vc", sizeName);
+  const show2vcDir = isDefault
+    ? path.join(circomDir, "inputs", "show_2vc")
+    : path.join(circomDir, "inputs", "show_2vc", sizeName);
+  fs.mkdirSync(prepare2vcDir, { recursive: true });
+  fs.mkdirSync(show2vcDir, { recursive: true });
+
+  const prepare2vcPath = path.join(prepare2vcDir, "default.json");
+  const show2vcPath = path.join(show2vcDir, "default.json");
+
+  const prepare2vcInputs = { vc0: mockData.circuitInputs, vc1: mockB.circuitInputs };
+  fs.writeFileSync(prepare2vcPath, JSON.stringify(prepare2vcInputs, bigintReplacer, 2));
+
+  const show2vcParams: ShowCircuitParams = {
+    nClaims: 4,
+    maxPredicates: 2,
+    maxLogicTokens: 8,
+    valueBits: 64,
+  };
+  const dupClaims = [...mockData.claims, ...mockB.claims];
+  const show2vcInputs = generateShowInputs(
+    show2vcParams,
+    nonce,
+    deviceSignature,
+    mockData.deviceKey,
+    dupClaims,
+    [],
+    [],
+  );
+  show2vcInputs.predicateLen = 1n;
+  show2vcInputs.predicateClaimRefs[0] = 0n;
+  show2vcInputs.predicateOps[0] = BigInt(OP_LE);
+  show2vcInputs.predicateRhsValues[0] = 1070101n;
+  show2vcInputs.tokenTypes[0] = 0n;
+  show2vcInputs.tokenValues[0] = 0n;
+  show2vcInputs.exprLen = 1n;
+
+  fs.writeFileSync(show2vcPath, JSON.stringify(show2vcInputs, bigintReplacer, 2));
+  console.log(`  Prepare2vc inputs → ${path.relative(circomDir, prepare2vcPath)}`);
+  console.log(`  Show2vc inputs → ${path.relative(circomDir, show2vcPath)}`);
 }
 
 async function main(): Promise<void> {

@@ -21,13 +21,16 @@ use ecdsa_spartan2::{
     generate_shared_blinds, load_instance, load_proof, load_proving_key, load_shared_blinds,
     load_verifying_key, load_witness,
     paths::keys::{
-        PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY,
-        PREPARE_WITNESS, SHARED_BLINDS, SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY,
-        SHOW_VERIFYING_KEY, SHOW_WITNESS,
+        PREPARE_2VC_INSTANCE, PREPARE_2VC_PROOF, PREPARE_2VC_PROVING_KEY, PREPARE_2VC_VERIFYING_KEY,
+        PREPARE_2VC_WITNESS, PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY,
+        PREPARE_VERIFYING_KEY, PREPARE_WITNESS, SHARED_BLINDS, SHOW_2VC_INSTANCE, SHOW_2VC_PROOF,
+        SHOW_2VC_PROVING_KEY, SHOW_2VC_VERIFYING_KEY, SHOW_2VC_WITNESS, SHOW_INSTANCE, SHOW_PROOF,
+        SHOW_PROVING_KEY, SHOW_VERIFYING_KEY, SHOW_WITNESS,
     },
     prove_circuit, prove_circuit_with_pk, reblind, reblind_with_loaded_data, run_circuit,
     save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
-    verify_circuit_with_loaded_data, PathConfig, PrepareCircuit, ShowCircuit, E,
+    verify_circuit_with_loaded_data, PathConfig, Prepare2VcCircuit, PrepareCircuit, Show2VcCircuit,
+    ShowCircuit, E,
 };
 use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
@@ -490,6 +493,10 @@ fn run_complete_pipeline(path_config: PathConfig, input_path: Option<PathBuf>) -
 enum CircuitKind {
     Prepare,
     Show,
+    /// Track A (Option 2): dual SD-JWT Prepare.
+    Prepare2vc,
+    /// Track A: Show over four claim slots (two JWTs × two claims).
+    Show2vc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -544,6 +551,8 @@ fn main() {
     match command.circuit {
         CircuitKind::Prepare => execute_prepare(command.action, command.options),
         CircuitKind::Show => execute_show(command.action, command.options),
+        CircuitKind::Prepare2vc => execute_prepare_2vc(command.action, command.options),
+        CircuitKind::Show2vc => execute_show_2vc(command.action, command.options),
     }
 }
 
@@ -668,6 +677,127 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
     }
 }
 
+fn execute_prepare_2vc(action: CircuitAction, options: CommandOptions) {
+    let path_config = options.path_config();
+
+    match action {
+        CircuitAction::Setup => {
+            info!(size = %path_config.circuit_size, "Setting up keys for Prepare2Vc (Track A)");
+            let circuit = Prepare2VcCircuit::new(path_config.clone(), options.input.clone());
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(PREPARE_2VC_PROVING_KEY),
+                path_config.key_path(PREPARE_2VC_VERIFYING_KEY),
+            );
+        }
+        CircuitAction::Run => {
+            let circuit = Prepare2VcCircuit::new(path_config, options.input.clone());
+            info!("Running Prepare2Vc circuit");
+            run_circuit(circuit);
+        }
+        CircuitAction::Prove => {
+            let circuit = Prepare2VcCircuit::new(path_config.clone(), options.input.clone());
+            info!("Proving Prepare2Vc circuit");
+            prove_circuit(
+                circuit,
+                path_config.key_path(PREPARE_2VC_PROVING_KEY),
+                path_config.artifact_path(PREPARE_2VC_INSTANCE),
+                path_config.artifact_path(PREPARE_2VC_WITNESS),
+                path_config.artifact_path(PREPARE_2VC_PROOF),
+            );
+        }
+        CircuitAction::Verify => {
+            info!("Verifying Prepare2Vc proof");
+            let _ = verify_circuit(
+                path_config.artifact_path(PREPARE_2VC_PROOF),
+                path_config.key_path(PREPARE_2VC_VERIFYING_KEY),
+            );
+        }
+        CircuitAction::Reblind => {
+            info!("Reblinding Prepare2Vc proof");
+            reblind(
+                path_config.key_path(PREPARE_2VC_PROVING_KEY),
+                path_config.artifact_path(PREPARE_2VC_INSTANCE),
+                path_config.artifact_path(PREPARE_2VC_WITNESS),
+                path_config.artifact_path(PREPARE_2VC_PROOF),
+                path_config.artifact_path(SHARED_BLINDS),
+            );
+        }
+        CircuitAction::GenerateSharedBlinds => {
+            info!("Generating shared blinds (Track A Prepare2Vc + Show2vc)");
+            generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
+        }
+        CircuitAction::Benchmark => {
+            eprintln!("Use `prepare benchmark` or a dedicated Track A script; Prepare2Vc benchmark not wired.");
+            process::exit(1);
+        }
+    }
+}
+
+fn execute_show_2vc(action: CircuitAction, options: CommandOptions) {
+    let path_config = options.path_config();
+
+    match action {
+        CircuitAction::Setup => {
+            info!(size = %path_config.circuit_size, "Setting up keys for Show2Vc (Track A)");
+            let circuit = Show2VcCircuit::new(path_config.clone(), options.input.clone());
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(SHOW_2VC_PROVING_KEY),
+                path_config.key_path(SHOW_2VC_VERIFYING_KEY),
+            );
+        }
+        CircuitAction::Run => {
+            let circuit = Show2VcCircuit::new(path_config, options.input.clone());
+            info!("Running Show2Vc circuit");
+            run_circuit(circuit);
+        }
+        CircuitAction::Prove => {
+            let circuit = Show2VcCircuit::new(path_config.clone(), options.input.clone());
+            info!("Proving Show2Vc circuit");
+            prove_circuit(
+                circuit,
+                path_config.key_path(SHOW_2VC_PROVING_KEY),
+                path_config.artifact_path(SHOW_2VC_INSTANCE),
+                path_config.artifact_path(SHOW_2VC_WITNESS),
+                path_config.artifact_path(SHOW_2VC_PROOF),
+            );
+        }
+        CircuitAction::Verify => {
+            info!("Verifying Show2Vc proof");
+            let public_values = verify_circuit(
+                path_config.artifact_path(SHOW_2VC_PROOF),
+                path_config.key_path(SHOW_2VC_VERIFYING_KEY),
+            );
+            if !public_values.is_empty() {
+                let expression_result = public_values[0] == Field::ONE;
+                println!(
+                    "expressionResult: {} (raw: {:?})",
+                    expression_result, public_values[0]
+                );
+            }
+        }
+        CircuitAction::Reblind => {
+            info!("Reblinding Show2Vc proof");
+            reblind(
+                path_config.key_path(SHOW_2VC_PROVING_KEY),
+                path_config.artifact_path(SHOW_2VC_INSTANCE),
+                path_config.artifact_path(SHOW_2VC_WITNESS),
+                path_config.artifact_path(SHOW_2VC_PROOF),
+                path_config.artifact_path(SHARED_BLINDS),
+            );
+        }
+        CircuitAction::GenerateSharedBlinds => {
+            eprintln!("Error: generate_shared_blinds — use `prepare2vc generate_shared_blinds`");
+            process::exit(1);
+        }
+        CircuitAction::Benchmark => {
+            eprintln!("Show2Vc benchmark not wired; use full Track A flow manually.");
+            process::exit(1);
+        }
+    }
+}
+
 fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
     if args.is_empty() {
         return Err("No command provided".into());
@@ -680,6 +810,8 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         }
         "prepare" => parse_circuit_command(CircuitKind::Prepare, &args[1..]),
         "show" => parse_circuit_command(CircuitKind::Show, &args[1..]),
+        "prepare2vc" => parse_circuit_command(CircuitKind::Prepare2vc, &args[1..]),
+        "show2vc" => parse_circuit_command(CircuitKind::Show2vc, &args[1..]),
         "benchmark" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Benchmark,
@@ -800,8 +932,14 @@ fn parse_circuit_command(circuit: CircuitKind, tail: &[String]) -> Result<Parsed
         }
     };
 
-    if action == CircuitAction::GenerateSharedBlinds && circuit != CircuitKind::Prepare {
-        return Err("generate_shared_blinds is only supported for the Prepare circuit".into());
+    if action == CircuitAction::GenerateSharedBlinds
+        && circuit != CircuitKind::Prepare
+        && circuit != CircuitKind::Prepare2vc
+    {
+        return Err(
+            "generate_shared_blinds is only supported for the Prepare / prepare2vc circuits"
+                .into(),
+        );
     }
 
     let options_slice = &tail[option_start..];
@@ -902,15 +1040,17 @@ fn parse_options_size_only(args: &[String]) -> Result<CommandOptions, String> {
 fn print_usage() {
     eprintln!(
         "Usage:
-  ecdsa-spartan2 <prepare|show> [run|setup|prove|verify|reblind|benchmark] [options]
+  ecdsa-spartan2 <prepare|show|prepare2vc|show2vc> [run|setup|prove|verify|reblind|benchmark] [options]
   ecdsa-spartan2 benchmark      [options]
   ecdsa-spartan2 benchmark-all
 
 Commands:
   benchmark         Full pipeline (setup+prove+reblind+verify) for one size
   benchmark-all     Prove+reblind+verify across ALL compiled sizes, print comparison table
-  prepare <action>  Run action on Prepare circuit
-  show    <action>  Run action on Show circuit
+  prepare <action>   Run action on Prepare circuit (single SD-JWT)
+  show    <action>   Run action on Show circuit (single VC claims)
+  prepare2vc <action> Track A — dual SD-JWT Prepare (shared slice width 6 for maxMatches=4)
+  show2vc <action>   Track A — Show(4,…) matching prepare2vc shared layout
 
 Actions:
   run               Run circuit (setup, prove, verify)
@@ -922,7 +1062,7 @@ Actions:
 
 Options:
   --size, -s <sz>   Circuit size: 1k | 2k | 4k | 8k  (default: 1k)
-  --input, -i <p>   Override JWT input JSON path (prepare run/prove/setup/benchmark)
+  --input, -i <p>   Override input JSON (prepare: jwt; prepare2vc: nested vc0/vc1 JSON)
 
 Typical workflow:
   # 1. Compile circuits (Circom side)

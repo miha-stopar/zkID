@@ -101,6 +101,9 @@ export interface MockDataOptions {
   kid?: string;
   targetPayloadLength?: number;
   claimFormats?: number[];
+  /** When set, reuse this device binding for `cnf` (Track A second VC with same wallet key). */
+  devicePrivateKey?: Uint8Array;
+  deviceKey?: JwkEcdsaPublicKey;
 }
 
 export interface MockDataResult {
@@ -123,7 +126,11 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
   const claims = options.claims || defaultClaims;
   const kid = options.kid || "key-1";
   const issuerKeyData = await getIssuerKey(kid);
-  const { privateKey: devicePrivateKey, publicKey: deviceKey } = generateDeviceBindingKey();
+  const deviceBinding =
+    options.devicePrivateKey && options.deviceKey
+      ? { privateKey: options.devicePrivateKey, publicKey: options.deviceKey }
+      : generateDeviceBindingKey();
+  const { privateKey: devicePrivateKey, publicKey: deviceKey } = deviceBinding;
 
   const privateKeyHex = Buffer.from(issuerKeyData.privateKey).toString("hex");
   const issuerJwkPrivate = {
