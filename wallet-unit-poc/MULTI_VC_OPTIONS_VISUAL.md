@@ -48,7 +48,7 @@ component main {public [deviceKeyX, deviceKeyY]} = Show(2, 2, 8, 64);
 
 ## 2. Option 1 — monolithic single proof (branch on `zkID-miha`)
 
-**Branch:** `feature/monolithic-2vc-option1` in repository **`zkID-miha`** (not checked into `zkID-Claude` at the time of writing).
+**Branch:** `feature/monolithic-2vc-option1` (primary implementation; Option 1 sources may also be merged or mirrored in other checkouts).
 
 **Story.** One Circom program runs **two** SD-JWT paths **and** the Show gadget. The device key is wired so both JWT `KeyBinding` outputs **must** match the Show public key inputs. One R1CS, **one** Spartan proof — **no** `comm_W_shared` between separate proofs.
 
@@ -81,13 +81,13 @@ component sh = Show(nClaimsMono, maxPredicates, maxLogicTokens, valueBits);
 | Verifier handles one proof artifact | Larger single R1CS; cannot ship Prepare-only early |
 | No shared-blind / reblind choreography | Any credential update forces full re-prove |
 
-**Where to read more.** `wallet-unit-poc/MONOLITHIC_2VC.md` on that branch lists every file path.
+**Where to read more.** Option 1 file layout and TODOs: [`MONOLITHIC_2VC.md`](MONOLITHIC_2VC.md) (same folder as this document — present on this branch in both `zkID-miha` and `zkID-Claude` when the branch is checked out in each clone).
 
 ---
 
 ## 3. Track A Option 2 — still two proofs, wider shared slice (this branch)
 
-**Branch:** `feature/track-a-option2-2vc` in **`zkID-Claude`**.
+**Branch:** `feature/track-a-option2-2vc` in **`zkID-miha`** and **`zkID-Claude`** (keep these clones in sync from the same remote or `git fetch` / `git pull` between the two local paths; recommended primary workspace: **`zkID-miha`** to avoid duplicating work across two roots).
 
 **Story.** Keep the **Prepare / Show split** and **`comm_W_shared`** exactly as in production today. Extend Prepare so it runs **two** SD-JWT templates in one Prepare R1CS; extend Show to `Show(4, …)` so the flat claim vector is **VC0 claims ∥ VC1 claims**. Same device key is enforced **inside** Prepare (both JWT paths agree on `KeyBinding`).
 
@@ -226,9 +226,9 @@ flowchart LR
 
 ## 7. Git branches (summary)
 
-| Branch | Repo | Option |
-|--------|------|--------|
-| `feature/monolithic-2vc-option1` | `zkID-miha` | Option 1 |
-| `feature/track-a-option2-2vc` | `zkID-Claude` | Track A §4 (Option 2) |
+| Branch | Repos (use one primary clone) | Option |
+|--------|-------------------------------|--------|
+| `feature/monolithic-2vc-option1` | `zkID-miha` (and any fork that carried the work) | Option 1 |
+| `feature/track-a-option2-2vc` | **`zkID-miha`**, `zkID-Claude` | Track A §4 (Option 2) |
 
 To compare locally: check out each branch side by side and diff `wallet-unit-poc/circom` + `wallet-unit-poc/ecdsa-spartan2`.
