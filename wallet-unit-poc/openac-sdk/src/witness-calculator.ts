@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { ProofError } from "./errors.js";
 import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
 import type { JwtCircuitInputs, Prepare2VcCircuitInputs, ShowCircuitInputs } from "./types.js";
@@ -39,8 +39,7 @@ export class WitnessCalculator {
 
   async init(): Promise<void> {
     const builderPath = join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "witness_calculator.js");
-    const module = await import(/* webpackIgnore: true */ builderPath);
-    this.builder = module.default ?? module;
+    this.builder = await this.loadBuilder(builderPath);
   }
 
   private async loadCalculator(wasmPath: string): Promise<WitnessCalculatorInstance> {
@@ -49,6 +48,30 @@ export class WitnessCalculator {
     }
     const wasmBuffer = await readFile(wasmPath);
     return await this.builder(wasmBuffer, { sanityCheck: true });
+  }
+
+  private async loadBuilder(builderPath: string): Promise<WitnessCalculatorBuilder> {
+    try {
+      const module = await import(/* webpackIgnore: true */ pathToFileURL(builderPath).href);
+      return this.asBuilder(module.default ?? module);
+    } catch (error) {
+      const source = await readFile(builderPath, "utf8");
+      const module = { exports: {} };
+      // Circom emits this builder as CommonJS even when the SDK package is ESM.
+      const evaluate = new Function("module", "exports", source);
+      evaluate(module, module.exports);
+      return this.asBuilder(module.exports);
+    }
+  }
+
+  private asBuilder(value: unknown): WitnessCalculatorBuilder {
+    if (typeof value !== "function") {
+      throw new ProofError(
+        "WITNESS_GENERATION_FAILED",
+        "Witness calculator builder did not export a function.",
+      );
+    }
+    return value as WitnessCalculatorBuilder;
   }
 
   async calculateJwtWitness(inputs: JwtCircuitInputs | CircuitInput): Promise<bigint[]> {
