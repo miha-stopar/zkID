@@ -69,37 +69,21 @@ result.deviceKey;        // { x: '0x...', y: '0x...' }
 import { OpenAC, LogicToken, PredicateOp } from "openac-sdk";
 
 const openac = await OpenAC.init({ assetsDir: "./assets" });
-const keys = await openac.loadMultiKeysFromUrl("https://cdn.example/keys", "1k", 2);
+const keys = await openac.loadKeysFromUrl("https://cdn.example/keys", "1k");
 
-const precomputed = await openac.precomputeMulti({
+const prepared = await openac.precomputePreparedMulti({
   credentials: [
     { jwt: idCredential, disclosures: idDisclosures, issuerPublicKey: idIssuer },
     { jwt: membershipCredential, disclosures: membershipDisclosures, issuerPublicKey: membershipIssuer },
   ],
   keys,
-  credentialCount: 2,
 });
 
-const proof = await openac.presentMulti({
-  precomputed,
-  verifierNonce: "challenge-123",
-  devicePrivateKey: "0xabcdef...",
-  keys,
-  showInputOptions: {
-    predicates: [
-      { claimRef: 1, op: PredicateOp.LE, rhsValue: 1070101n },
-      { claimRef: 3, op: PredicateOp.GE, rhsValue: 10000n },
-    ],
-    logicExpression: [
-      { type: LogicToken.REF, value: 0 },
-      { type: LogicToken.REF, value: 1 },
-      { type: LogicToken.AND, value: 0 },
-    ],
-  },
-});
+// prepared.normalizedClaimValues is a flattened namespace:
+// VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
 ```
 
-`precomputeMulti` uses a circuit profile selected by `credentialCount` (or by `credentials.length` when omitted). The current end-to-end SDK profile is `multi-vc-2`; 3VC/4VC Circom entry points and generic input builders exist, but they are not registered for runtime use until matching Spartan native/WASM wrappers and keys are generated. All credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
+`precomputePreparedMulti` runs the normal single-credential Prepare circuit once per credential and bundles the saved normalized claims for a future multi-credential Show. All credentials must be bound to the same `cnf.jwk` device key. Full multi-credential presentation still needs a verifier/prover update to link several Prepare commitments to one Show proof.
 
 ### One-Shot (no precompute/present split)
 
@@ -144,12 +128,13 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 |--------|-------------|
 | `OpenAC.init(config?)` | Load WASM prover |
 | `openac.loadKeysFromUrl(url, size)` | Fetch keys (`'1k'`/`'2k'`/`'4k'`/`'8k'`) |
-| `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch multi-credential Prepare/Show keys |
+| `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch legacy combined-Prepare multi-credential keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
 | `openac.precompute(req)` | Prove JWT validity (cache this) |
 | `openac.present(req)` | Prove predicates + device key |
-| `openac.precomputeMulti(req)` | Prove a supported multi-credential circuit and cache flattened claims |
-| `openac.presentMulti(req)` | Prove predicates over flattened multi-credential claims |
+| `openac.precomputePreparedMulti(req)` | Prepare each credential once and cache flattened claims for multi-credential Show |
+| `openac.precomputeMulti(req)` | Legacy combined-Prepare multi-credential path |
+| `openac.presentMulti(req)` | Legacy combined-Prepare multi-credential presentation |
 | `openac.verify(proof, keys)` | Verify proof |
 | `openac.createProof(req)` | One-shot prove |
 | `openac.verifyProof(bytes, keys)` | Verify serialized proof |

@@ -501,18 +501,8 @@ pub fn calculate_prepare_2vc_output_indices(
     max_matches: usize,
     _max_claims_length: usize,
 ) -> JwtOutputLayout {
-    calculate_prepare_multi_vc_output_indices(2, max_matches, _max_claims_length)
-}
-
-/// Public-output layout for `PrepareNSdJwt`:
-/// `normalizedClaimValuesAll[0..credential_count*(maxMatches-2)]`, then `KeyBindingX`, `KeyBindingY`.
-pub fn calculate_prepare_multi_vc_output_indices(
-    credential_count: usize,
-    max_matches: usize,
-    _max_claims_length: usize,
-) -> JwtOutputLayout {
     let per_vc_claims = max_matches.saturating_sub(2);
-    let claim_values_len = credential_count * per_vc_claims;
+    let claim_values_len = 2 * per_vc_claims;
     let claim_values_start = 1;
     let keybinding_x_index = claim_values_start + claim_values_len;
     let keybinding_y_index = keybinding_x_index + 1;

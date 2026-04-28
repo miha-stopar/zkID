@@ -13,7 +13,9 @@ import type {
   SerializedProof,
   PrecomputeRequest,
   PrecomputeMultiRequest,
+  PrecomputePreparedMultiRequest,
   PrecomputedCredential,
+  PreparedMultiCredential,
   PrecomputedMultiCredential,
   PresentRequest,
   PresentMultiRequest,
@@ -113,6 +115,18 @@ export class OpenAC {
     return this.prover.precomputeMulti(request);
   }
 
+  async precomputePreparedMulti(
+    request: PrecomputePreparedMultiRequest,
+  ): Promise<PreparedMultiCredential> {
+    return this.prover.precomputePreparedMulti(request);
+  }
+
+  bundlePrecomputedCredentials(
+    precomputedCredentials: PrecomputedCredential[],
+  ): PreparedMultiCredential {
+    return this.prover.bundlePrecomputedCredentials(precomputedCredentials);
+  }
+
   async present(request: PresentRequest): Promise<PresentationProof> {
     return this.prover.present(request);
   }
@@ -198,7 +212,9 @@ export { Credential } from "./credential.js";
 export {
   Prover,
   deserializePrecomputed,
+  deserializePreparedMulti,
   deserializePrecomputedMulti,
+  bundlePrecomputedCredentials,
 } from "./prover.js";
 export { Verifier } from "./verifier.js";
 export { WitnessCalculator } from "./witness-calculator.js";
@@ -254,7 +270,9 @@ export type {
   ErrorCode,
   PrecomputeRequest,
   PrecomputeMultiRequest,
+  PrecomputePreparedMultiRequest,
   PrecomputedCredential,
+  PreparedMultiCredential,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
@@ -265,6 +283,7 @@ export type {
   ClaimNamespaceEntry,
   SerializedCredential,
   SerializedPrecomputedCredentialJSON,
+  SerializedPreparedMultiCredentialJSON,
   SerializedPrecomputedMultiCredentialJSON,
 } from "./types.js";
 

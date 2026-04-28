@@ -26,7 +26,9 @@ import type {
   ShowCircuitParams,
   PrecomputeRequest,
   PrecomputeMultiRequest,
+  PrecomputePreparedMultiRequest,
   PrecomputedCredential,
+  PreparedMultiCredential,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
@@ -34,6 +36,7 @@ import type {
   PresentationProof,
   PresentationTiming,
   SerializedPrecomputedCredentialJSON,
+  SerializedPreparedMultiCredentialJSON,
   SerializedPrecomputedMultiCredentialJSON,
   EcdsaPublicKey,
   MultiCredentialInput,
@@ -69,22 +72,13 @@ export class Prover {
     const credential = Credential.parse(request.jwt, request.disclosures);
     timing.parseCredentialMs = performance.now() - t1;
 
-    let birthdayClaimIndex: number;
-    if (request.birthdayClaimIndex !== undefined) {
-      birthdayClaimIndex = request.birthdayClaimIndex;
-    } else {
-      const autoDetected = credential.findBirthdayClaim();
-      if (autoDetected === null) {
-        throw new InputError(
-          "BIRTHDAY_NOT_FOUND",
-          "Could not auto-detect birthday claim. Provide birthdayClaimIndex explicitly.",
-        );
-      }
-      birthdayClaimIndex = autoDetected;
-    }
-
-    const birthdayClaim = credential.claims[birthdayClaimIndex];
-    if (!birthdayClaim) {
+    const autoDetectedBirthday = credential.findBirthdayClaim();
+    const birthdayClaimIndex =
+      request.birthdayClaimIndex ?? autoDetectedBirthday ?? -1;
+    const birthdayClaim = birthdayClaimIndex >= 0
+      ? credential.claims[birthdayClaimIndex]
+      : undefined;
+    if (request.birthdayClaimIndex !== undefined && !birthdayClaim) {
       throw new InputError(
         "BIRTHDAY_NOT_FOUND",
         `No claim at index ${birthdayClaimIndex}`,
@@ -100,15 +94,12 @@ export class Prover {
     }
 
     t1 = performance.now();
-    const decodeFlags =
-      request.decodeFlags ??
-      credential.claims.map((_, i) => (i === birthdayClaimIndex ? 1 : 0));
+    const decodeFlags = request.decodeFlags ?? this.defaultDecodeFlags(credential);
     const additionalMatches =
       request.additionalMatches ?? credential.disclosureHashes;
     const jwtParams: JwtCircuitParams = request.jwtParams ?? DEFAULT_JWT_PARAMS;
 
-    const claimFormats = request.claimFormats ??
-      credential.claims.map((_, i) => (i === birthdayClaimIndex ? 3 : 4));
+    const claimFormats = request.claimFormats ?? this.defaultClaimFormats(credential);
 
     const jwtInputs = buildJwtCircuitInputs(
       credential,
@@ -133,14 +124,24 @@ export class Prover {
     timing.prepareProveMs = performance.now() - t1;
     timing.totalMs = performance.now() - startTime;
 
+    const prepareWitness = await this.calculateJwtWitness(jwtInputsJson);
+    const claimsPerCredential = jwtParams.maxMatches - 2;
+    const normalizedClaimValues = prepareWitness.slice(
+      1,
+      1 + claimsPerCredential,
+    );
+
     return this.buildPrecomputedCredential(
       prepareResult.proof,
       prepareResult.instance,
       prepareResult.witness,
       credential,
       birthdayClaimIndex,
-      birthdayClaim.raw,
+      birthdayClaim?.raw ?? "",
       deviceKey,
+      claimsPerCredential,
+      normalizedClaimValues,
+      this.buildClaimNamespace([credential], claimsPerCredential),
       timing as PrecomputeTiming,
     );
   }
@@ -228,12 +229,55 @@ export class Prover {
     );
   }
 
+  async precomputePreparedMulti(
+    request: PrecomputePreparedMultiRequest,
+  ): Promise<PreparedMultiCredential> {
+    const prepared: PrecomputedCredential[] = [];
+    for (const credential of request.credentials) {
+      prepared.push(
+        await this.precompute({
+          jwt: credential.jwt,
+          disclosures: credential.disclosures,
+          issuerPublicKey: credential.issuerPublicKey,
+          keys: request.keys,
+          jwtParams: request.jwtParams,
+          decodeFlags: credential.decodeFlags,
+          claimFormats: credential.claimFormats,
+          additionalMatches: credential.additionalMatches,
+        }),
+      );
+    }
+    return this.bundlePrecomputedCredentials(prepared);
+  }
+
+  bundlePrecomputedCredentials(
+    precomputedCredentials: PrecomputedCredential[],
+  ): PreparedMultiCredential {
+    return bundlePrecomputedCredentials(precomputedCredentials);
+  }
+
   async present(request: PresentRequest): Promise<PresentationProof> {
     const startTime = performance.now();
     const timing: Partial<PresentationTiming> = {};
 
     const { precomputed, verifierNonce, devicePrivateKey, keys } = request;
     const showParams = request.showParams ?? DEFAULT_SHOW_PARAMS;
+    if (showParams.nClaims !== precomputed.normalizedClaimValues.length) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `showParams.nClaims (${showParams.nClaims}) must match precomputed normalized claim count (${precomputed.normalizedClaimValues.length})`,
+      );
+    }
+    const suppliedClaimValues = request.showInputOptions?.normalizedClaimValues;
+    if (
+      suppliedClaimValues &&
+      !this.bigintArraysEqual(suppliedClaimValues, precomputed.normalizedClaimValues)
+    ) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        "showInputOptions.normalizedClaimValues must match the precomputed Prepare outputs",
+      );
+    }
 
     const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
 
@@ -242,7 +286,10 @@ export class Prover {
       verifierNonce,
       deviceSignature,
       precomputed.deviceKey,
-      request.showInputOptions,
+      {
+        ...request.showInputOptions,
+        normalizedClaimValues: precomputed.normalizedClaimValues,
+      },
     );
     const showInputsJson = circuitInputsToJson(showInputs);
 
@@ -280,7 +327,7 @@ export class Prover {
       expressionResult,
       deviceKeyX: showInputs.deviceKeyX.toString(),
       deviceKeyY: showInputs.deviceKeyY.toString(),
-      normalizedClaimValues: [],
+      normalizedClaimValues: precomputed.normalizedClaimValues,
     };
 
     return this.buildPresentationProof(
@@ -758,6 +805,9 @@ export class Prover {
     birthdayClaimIndex: number,
     birthdayClaim: string,
     deviceKey: EcdsaPublicKey,
+    claimsPerCredential: number,
+    normalizedClaimValues: bigint[],
+    claimNamespace: ClaimNamespaceEntry[],
     timing: PrecomputeTiming,
   ): PrecomputedCredential {
     const result: PrecomputedCredential = {
@@ -772,6 +822,9 @@ export class Prover {
       birthdayClaimIndex,
       birthdayClaim,
       deviceKey,
+      claimsPerCredential,
+      normalizedClaimValues,
+      claimNamespace,
       timing,
 
       serialize(): Uint8Array {
@@ -788,6 +841,11 @@ export class Prover {
           birthdayClaimIndex: result.birthdayClaimIndex,
           birthdayClaim: result.birthdayClaim,
           deviceKey: result.deviceKey,
+          claimsPerCredential: result.claimsPerCredential,
+          normalizedClaimValues: result.normalizedClaimValues.map((value) =>
+            value.toString(),
+          ),
+          claimNamespace: result.claimNamespace,
         };
       },
     };
@@ -973,11 +1031,91 @@ function serializePrecomputed(precomputed: PrecomputedCredential): Uint8Array {
   return new TextEncoder().encode(json);
 }
 
+function serializePreparedMulti(prepared: PreparedMultiCredential): Uint8Array {
+  const json = JSON.stringify(prepared.toJSON());
+  return new TextEncoder().encode(json);
+}
+
 function serializePrecomputedMulti(
   precomputed: PrecomputedMultiCredential,
 ): Uint8Array {
   const json = JSON.stringify(precomputed.toJSON());
   return new TextEncoder().encode(json);
+}
+
+export function bundlePrecomputedCredentials(
+  precomputedCredentials: PrecomputedCredential[],
+): PreparedMultiCredential {
+  if (precomputedCredentials.length < 2) {
+    throw new InputError(
+      "PARAMS_EXCEEDED",
+      "A multi-credential presentation requires at least two prepared credentials",
+    );
+  }
+
+  const deviceKey = precomputedCredentials[0]!.deviceKey;
+  const claimsPerCredential = precomputedCredentials[0]!.claimsPerCredential;
+  for (const [index, precomputed] of precomputedCredentials.entries()) {
+    if (precomputed.deviceKey.x !== deviceKey.x || precomputed.deviceKey.y !== deviceKey.y) {
+      throw new InputError(
+        "INVALID_KEY",
+        `Prepared credential ${index} uses a different device binding key`,
+      );
+    }
+    if (precomputed.claimsPerCredential !== claimsPerCredential) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        "All prepared credentials in a bundle must use the same Prepare claim capacity",
+      );
+    }
+  }
+
+  const normalizedClaimValues = precomputedCredentials.flatMap(
+    (precomputed) => precomputed.normalizedClaimValues,
+  );
+  const claimNamespace = precomputedCredentials.flatMap(
+    (precomputed, credentialIndex) =>
+      precomputed.claimNamespace.map((entry) => ({
+        globalIndex: credentialIndex * claimsPerCredential + entry.claimIndex,
+        credentialIndex,
+        claimIndex: entry.claimIndex,
+        claimName: entry.claimName,
+      })),
+  );
+
+  const result: PreparedMultiCredential = {
+    kind: `multi-vc-${precomputedCredentials.length}`,
+    credentials: precomputedCredentials.map((precomputed) => precomputed.credential),
+    deviceKey,
+    credentialCount: precomputedCredentials.length,
+    claimsPerCredential,
+    normalizedClaimValues,
+    claimNamespace,
+    precomputedCredentials,
+
+    serialize(): Uint8Array {
+      return serializePreparedMulti(result);
+    },
+
+    toJSON(): SerializedPreparedMultiCredentialJSON {
+      return {
+        version: SDK_VERSION,
+        kind: result.kind,
+        credentials: result.credentials,
+        deviceKey: result.deviceKey,
+        credentialCount: result.credentialCount,
+        claimsPerCredential: result.claimsPerCredential,
+        normalizedClaimValues: result.normalizedClaimValues.map((value) =>
+          value.toString(),
+        ),
+        claimNamespace: result.claimNamespace,
+        precomputedCredentials: result.precomputedCredentials.map((precomputed) =>
+          precomputed.toJSON(),
+        ),
+      };
+    },
+  };
+  return result;
 }
 
 // Deserialize a precomputed credential from JSON bytes
@@ -986,6 +1124,10 @@ export function deserializePrecomputed(data: Uint8Array): PrecomputedCredential 
     new TextDecoder().decode(data),
   );
 
+  const claimsPerCredential = json.claimsPerCredential ?? 0;
+  const normalizedClaimValues = (json.normalizedClaimValues ?? []).map((value) =>
+    BigInt(value),
+  );
   const result: PrecomputedCredential = {
     prepareProof: base64Decode(json.prepareProof),
     prepareInstance: base64Decode(json.prepareInstance),
@@ -994,6 +1136,9 @@ export function deserializePrecomputed(data: Uint8Array): PrecomputedCredential 
     birthdayClaimIndex: json.birthdayClaimIndex,
     birthdayClaim: json.birthdayClaim,
     deviceKey: json.deviceKey,
+    claimsPerCredential,
+    normalizedClaimValues,
+    claimNamespace: json.claimNamespace ?? [],
     timing: {
       parseCredentialMs: 0,
       buildInputsMs: 0,
@@ -1007,10 +1152,52 @@ export function deserializePrecomputed(data: Uint8Array): PrecomputedCredential 
     },
 
     toJSON(): SerializedPrecomputedCredentialJSON {
-      return json;
+      return {
+        ...json,
+        claimsPerCredential: result.claimsPerCredential,
+        normalizedClaimValues: result.normalizedClaimValues.map((value) =>
+          value.toString(),
+        ),
+        claimNamespace: result.claimNamespace,
+      };
     },
   };
 
+  return result;
+}
+
+export function deserializePreparedMulti(
+  data: Uint8Array,
+): PreparedMultiCredential {
+  const json: SerializedPreparedMultiCredentialJSON = JSON.parse(
+    new TextDecoder().decode(data),
+  );
+  const precomputedCredentials = json.precomputedCredentials.map((entry) =>
+    deserializePrecomputed(
+      new TextEncoder().encode(JSON.stringify(entry)),
+    ),
+  );
+  const normalizedClaimValues = json.normalizedClaimValues.map((value) =>
+    BigInt(value),
+  );
+  const result: PreparedMultiCredential = {
+    kind: json.kind,
+    credentials: json.credentials,
+    deviceKey: json.deviceKey,
+    credentialCount: json.credentialCount,
+    claimsPerCredential: json.claimsPerCredential,
+    normalizedClaimValues,
+    claimNamespace: json.claimNamespace,
+    precomputedCredentials,
+
+    serialize(): Uint8Array {
+      return serializePreparedMulti(result);
+    },
+
+    toJSON(): SerializedPreparedMultiCredentialJSON {
+      return json;
+    },
+  };
   return result;
 }
 

@@ -14,6 +14,8 @@ import {
   buildShowCircuitInputs,
   signDeviceNonce,
   base64urlToBigInt,
+  bundlePrecomputedCredentials,
+  deserializePreparedMulti,
   getMultiCredentialCircuitProfile,
   multiCredentialKeyFilenames,
   SUPPORTED_MULTI_CREDENTIAL_COUNTS,
@@ -21,6 +23,7 @@ import {
   DEFAULT_SHOW_PARAMS,
   DEFAULT_SHOW_2VC_PARAMS,
 } from "../src/index.js";
+import type { PrecomputedCredential } from "../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = join(__dirname, "..", "assets");
@@ -267,6 +270,83 @@ describe("Input Builders via SDK", () => {
     expect(() => getMultiCredentialCircuitProfile(3)).toThrow(
       "Unsupported multi-credential count 3",
     );
+  });
+
+  it("bundles already prepared credentials into a flattened multi-credential claim namespace", () => {
+    const credential = {
+      jwt: "header.payload.sig",
+      disclosures: ["disclosure"],
+      deviceBindingKey: DEVICE_PUBLIC_KEY,
+    };
+    const makePrepared = (
+      normalizedClaimValues: bigint[],
+      claimNamePrefix: string,
+    ): PrecomputedCredential => {
+      const prepared = {
+        prepareProof: new Uint8Array([1]),
+        prepareInstance: new Uint8Array([2]),
+        prepareWitness: new Uint8Array([3]),
+        credential,
+        birthdayClaimIndex: -1,
+        birthdayClaim: "",
+        deviceKey: DEVICE_PUBLIC_KEY,
+        claimsPerCredential: 2,
+        normalizedClaimValues,
+        claimNamespace: [
+          {
+            globalIndex: 0,
+            credentialIndex: 0,
+            claimIndex: 0,
+            claimName: `${claimNamePrefix}0`,
+          },
+          {
+            globalIndex: 1,
+            credentialIndex: 0,
+            claimIndex: 1,
+            claimName: `${claimNamePrefix}1`,
+          },
+        ],
+        timing: {
+          parseCredentialMs: 0,
+          buildInputsMs: 0,
+          prepareWitnessMs: 0,
+          prepareProveMs: 0,
+          totalMs: 0,
+        },
+        serialize: () => new Uint8Array(),
+        toJSON() {
+          return {
+            version: "0.1.0",
+            prepareProof: "AQ==",
+            prepareInstance: "Ag==",
+            prepareWitness: "Aw==",
+            credential,
+            birthdayClaimIndex: -1,
+            birthdayClaim: "",
+            deviceKey: DEVICE_PUBLIC_KEY,
+            claimsPerCredential: 2,
+            normalizedClaimValues: normalizedClaimValues.map((value) =>
+              value.toString(),
+            ),
+            claimNamespace: prepared.claimNamespace,
+          };
+        },
+      };
+      return prepared;
+    };
+
+    const bundle = bundlePrecomputedCredentials([
+      makePrepared([10n, 20n], "a"),
+      makePrepared([30n, 40n], "b"),
+      makePrepared([50n, 60n], "c"),
+    ]);
+    const roundTripped = deserializePreparedMulti(bundle.serialize());
+
+    expect(bundle.kind).toBe("multi-vc-3");
+    expect(bundle.normalizedClaimValues).toEqual([10n, 20n, 30n, 40n, 50n, 60n]);
+    expect(bundle.claimNamespace.map((entry) => entry.globalIndex)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(bundle.claimNamespace[4]!.credentialIndex).toBe(2);
+    expect(roundTripped.normalizedClaimValues).toEqual(bundle.normalizedClaimValues);
   });
 
   it("buildShowCircuitInputs creates valid circuit inputs", () => {

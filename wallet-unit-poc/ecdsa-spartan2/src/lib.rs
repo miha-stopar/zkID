@@ -39,6 +39,6 @@ pub use setup::{
 };
 pub use utils::{
     bigint_to_scalar, calculate_jwt_output_indices, calculate_prepare_2vc_output_indices,
-    calculate_prepare_multi_vc_output_indices, convert_bigint_to_scalar, parse_jwt_inputs,
-    parse_prepare_2vc_inputs, parse_show_inputs, parse_witness,
+    convert_bigint_to_scalar, parse_jwt_inputs, parse_prepare_2vc_inputs, parse_show_inputs,
+    parse_witness,
 };

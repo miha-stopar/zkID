@@ -334,6 +334,9 @@ export interface PrecomputedCredential {
   birthdayClaimIndex: number;
   birthdayClaim: string;
   deviceKey: EcdsaPublicKey;
+  claimsPerCredential: number;
+  normalizedClaimValues: bigint[];
+  claimNamespace: ClaimNamespaceEntry[];
   timing: PrecomputeTiming;
   serialize(): Uint8Array;
   toJSON(): SerializedPrecomputedCredentialJSON;
@@ -344,6 +347,21 @@ export interface PrecomputeMultiRequest {
   keys: KeySet;
   credentialCount?: number;
   jwtParams?: JwtCircuitParams;
+}
+
+export type PrecomputePreparedMultiRequest = PrecomputeMultiRequest;
+
+export interface PreparedMultiCredential {
+  kind: MultiCredentialCircuitKind;
+  credentials: SerializedCredential[];
+  deviceKey: EcdsaPublicKey;
+  credentialCount: number;
+  claimsPerCredential: number;
+  normalizedClaimValues: bigint[];
+  claimNamespace: ClaimNamespaceEntry[];
+  precomputedCredentials: PrecomputedCredential[];
+  serialize(): Uint8Array;
+  toJSON(): SerializedPreparedMultiCredentialJSON;
 }
 
 export interface PrecomputedMultiCredential {
@@ -379,6 +397,21 @@ export interface SerializedPrecomputedCredentialJSON {
   birthdayClaimIndex: number;
   birthdayClaim: string;
   deviceKey: EcdsaPublicKey;
+  claimsPerCredential?: number;
+  normalizedClaimValues?: string[];
+  claimNamespace?: ClaimNamespaceEntry[];
+}
+
+export interface SerializedPreparedMultiCredentialJSON {
+  version: string;
+  kind: MultiCredentialCircuitKind;
+  credentials: SerializedCredential[];
+  deviceKey: EcdsaPublicKey;
+  credentialCount: number;
+  claimsPerCredential: number;
+  normalizedClaimValues: string[];
+  claimNamespace: ClaimNamespaceEntry[];
+  precomputedCredentials: SerializedPrecomputedCredentialJSON[];
 }
 
 export interface SerializedPrecomputedMultiCredentialJSON {
