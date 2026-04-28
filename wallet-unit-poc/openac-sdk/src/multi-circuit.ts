@@ -8,6 +8,7 @@ import type {
   JwtCircuitInputs,
   JwtCircuitParams,
   MultiCredentialCircuitKind,
+  PrepareMultiVcCircuitInputs,
   Prepare2VcCircuitInputs,
   ShowCircuitParams,
 } from "./types.js";
@@ -15,6 +16,7 @@ import type { VcSize } from "./wasm-bridge.js";
 
 export type MultiPrepareCircuitInputs =
   | Prepare2VcCircuitInputs
+  | PrepareMultiVcCircuitInputs
   | Record<string, unknown>;
 
 export type WasmPrecomputeExportName =

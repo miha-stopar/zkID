@@ -71,6 +71,18 @@ if [ -d "$CIRCOM_BUILD" ]; then
         echo "  Copied show_2vc.wasm (witness calculator)"
     fi
 
+    for count in 3 4; do
+        if [ -f "$CIRCOM_BUILD/prepare_${count}vc_1k/prepare_${count}vc_1k_js/prepare_${count}vc_1k.wasm" ]; then
+            cp "$CIRCOM_BUILD/prepare_${count}vc_1k/prepare_${count}vc_1k_js/prepare_${count}vc_1k.wasm" "$ASSETS_DIR/prepare_${count}vc.wasm"
+            echo "  Copied prepare_${count}vc.wasm (1k witness calculator)"
+        fi
+
+        if [ -f "$CIRCOM_BUILD/show_${count}vc/show_${count}vc_js/show_${count}vc.wasm" ]; then
+            cp "$CIRCOM_BUILD/show_${count}vc/show_${count}vc_js/show_${count}vc.wasm" "$ASSETS_DIR/show_${count}vc.wasm"
+            echo "  Copied show_${count}vc.wasm (witness calculator)"
+        fi
+    done
+
     echo "Circuit artifacts copied to $ASSETS_DIR/"
 else
     echo "Warning: Circom build directory not found at $CIRCOM_BUILD"

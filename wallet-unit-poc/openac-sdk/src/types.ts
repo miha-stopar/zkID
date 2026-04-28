@@ -254,6 +254,24 @@ export type Prepare2VcCircuitInputs = {
   [K in keyof JwtCircuitInputs as `${K & string}${0 | 1}`]: JwtCircuitInputs[K];
 };
 
+export interface PrepareMultiVcCircuitInputs {
+  message: JwtCircuitInputs["message"][];
+  messageLength: JwtCircuitInputs["messageLength"][];
+  periodIndex: JwtCircuitInputs["periodIndex"][];
+  sig_r: JwtCircuitInputs["sig_r"][];
+  sig_s_inverse: JwtCircuitInputs["sig_s_inverse"][];
+  pubKeyX: JwtCircuitInputs["pubKeyX"][];
+  pubKeyY: JwtCircuitInputs["pubKeyY"][];
+  matchesCount: JwtCircuitInputs["matchesCount"][];
+  matchSubstring: JwtCircuitInputs["matchSubstring"][];
+  matchLength: JwtCircuitInputs["matchLength"][];
+  matchIndex: JwtCircuitInputs["matchIndex"][];
+  claims: JwtCircuitInputs["claims"][];
+  claimLengths: JwtCircuitInputs["claimLengths"][];
+  decodeFlags: JwtCircuitInputs["decodeFlags"][];
+  claimFormats: JwtCircuitInputs["claimFormats"][];
+}
+
 // Raw circuit inputs for the Show circuit
 export interface ShowCircuitInputs {
   deviceKeyX: bigint;

@@ -10,6 +10,7 @@ import {
   Credential,
   buildJwtCircuitInputs,
   buildPrepare2VcCircuitInputs,
+  buildPrepareMultiVcCircuitInputs,
   buildShowCircuitInputs,
   signDeviceNonce,
   base64urlToBigInt,
@@ -387,6 +388,42 @@ describe("Input Builders via SDK", () => {
     expect(prepare2VcInputs.sig_r1).toBe(jwtInputs.sig_r);
     expect(prepare2VcInputs.claims0.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
     expect(prepare2VcInputs.claims1.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
+  });
+
+  it("buildPrepareMultiVcCircuitInputs creates nested inputs for generic N-credential circuits", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+    const additionalMatches = credential.disclosureHashes;
+    const decodeFlags = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 1 : 0,
+    );
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
+    const jwtInputs = buildJwtCircuitInputs(
+      credential,
+      data.issuerPublicKey,
+      DEFAULT_JWT_PARAMS,
+      additionalMatches,
+      decodeFlags,
+      claimFormats,
+    );
+    const prepareInputs = buildPrepareMultiVcCircuitInputs([
+      jwtInputs,
+      jwtInputs,
+      jwtInputs,
+    ]);
+
+    expect(prepareInputs.message.length).toBe(3);
+    expect(prepareInputs.message[0]!.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
+    expect(prepareInputs.matchSubstring.length).toBe(3);
+    expect(prepareInputs.claims[2]!.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
+    expect(prepareInputs.sig_r).toEqual([
+      jwtInputs.sig_r,
+      jwtInputs.sig_r,
+      jwtInputs.sig_r,
+    ]);
   });
 
   it("buildShowCircuitInputs can address the flattened 2VC claim namespace", () => {

@@ -21,6 +21,7 @@ import type {
   JwtCircuitParams,
   JwtCircuitInputs,
   Prepare2VcCircuitInputs,
+  PrepareMultiVcCircuitInputs,
   EcdsaPublicKey,
   PemPublicKey,
   IssuerPublicKey,
@@ -263,6 +264,35 @@ export function buildPrepare2VcCircuitInputs(
     ...suffixJwtInputs(vc0, 0),
     ...suffixJwtInputs(vc1, 1),
   } as Prepare2VcCircuitInputs;
+}
+
+export function buildPrepareMultiVcCircuitInputs(
+  credentials: JwtCircuitInputs[],
+): PrepareMultiVcCircuitInputs {
+  if (credentials.length < 2) {
+    throw new InputError(
+      "PARAMS_EXCEEDED",
+      "Multi-credential Prepare inputs require at least two credentials",
+    );
+  }
+
+  return {
+    message: credentials.map((credential) => credential.message),
+    messageLength: credentials.map((credential) => credential.messageLength),
+    periodIndex: credentials.map((credential) => credential.periodIndex),
+    sig_r: credentials.map((credential) => credential.sig_r),
+    sig_s_inverse: credentials.map((credential) => credential.sig_s_inverse),
+    pubKeyX: credentials.map((credential) => credential.pubKeyX),
+    pubKeyY: credentials.map((credential) => credential.pubKeyY),
+    matchesCount: credentials.map((credential) => credential.matchesCount),
+    matchSubstring: credentials.map((credential) => credential.matchSubstring),
+    matchLength: credentials.map((credential) => credential.matchLength),
+    matchIndex: credentials.map((credential) => credential.matchIndex),
+    claims: credentials.map((credential) => credential.claims),
+    claimLengths: credentials.map((credential) => credential.claimLengths),
+    decodeFlags: credentials.map((credential) => credential.decodeFlags),
+    claimFormats: credentials.map((credential) => credential.claimFormats),
+  };
 }
 
 function suffixJwtInputs(

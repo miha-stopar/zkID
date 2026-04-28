@@ -207,6 +207,7 @@ export type { NativeBackendConfig } from "./native-backend.js";
 export {
   buildJwtCircuitInputs,
   buildPrepare2VcCircuitInputs,
+  buildPrepareMultiVcCircuitInputs,
 } from "./inputs/jwt-input-builder.js";
 export {
   buildShowCircuitInputs,
@@ -246,6 +247,7 @@ export type {
   ShowCircuitParams,
   JwtCircuitInputs,
   Prepare2VcCircuitInputs,
+  PrepareMultiVcCircuitInputs,
   ShowCircuitInputs,
   MultiCredentialCircuitKind,
   CircuitArtifacts,

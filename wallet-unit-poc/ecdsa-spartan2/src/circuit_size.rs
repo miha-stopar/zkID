@@ -81,7 +81,11 @@ impl CircuitSize {
     }
 
     pub fn n_claims_2vc(self) -> usize {
-        2 * self.n_claims()
+        self.n_claims_multi(2)
+    }
+
+    pub fn n_claims_multi(self, credential_count: usize) -> usize {
+        credential_count * self.n_claims()
     }
 }
 

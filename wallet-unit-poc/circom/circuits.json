@@ -55,10 +55,32 @@
     "template": "Prepare2SdJwt",
     "params": [8192, 8000, 4, 50, 128]
   },
+  "prepare_3vc_1k": {
+    "file": "prepare_nsdjwt",
+    "template": "PrepareNSdJwt",
+    "params": [3, 1280, 960, 4, 50, 128]
+  },
+  "prepare_4vc_1k": {
+    "file": "prepare_nsdjwt",
+    "template": "PrepareNSdJwt",
+    "params": [4, 1280, 960, 4, 50, 128]
+  },
   "show_2vc": {
     "file": "show",
     "template": "Show",
     "params": [4, 2, 8, 64],
+    "pubs": ["deviceKeyX", "deviceKeyY"]
+  },
+  "show_3vc": {
+    "file": "show",
+    "template": "Show",
+    "params": [6, 2, 8, 64],
+    "pubs": ["deviceKeyX", "deviceKeyY"]
+  },
+  "show_4vc": {
+    "file": "show",
+    "template": "Show",
+    "params": [8, 2, 8, 64],
     "pubs": ["deviceKeyX", "deviceKeyY"]
   },
   "ecdsa": {

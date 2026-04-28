@@ -99,7 +99,7 @@ const proof = await openac.presentMulti({
 });
 ```
 
-`precomputeMulti` uses a circuit profile selected by `credentialCount` (or by `credentials.length` when omitted). The current SDK ships the V1 `multi-vc-2` profile; additional counts require generated Circom/WASM artifacts and Spartan keys for that fixed count. All credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
+`precomputeMulti` uses a circuit profile selected by `credentialCount` (or by `credentials.length` when omitted). The current end-to-end SDK profile is `multi-vc-2`; 3VC/4VC Circom entry points and generic input builders exist, but they are not registered for runtime use until matching Spartan native/WASM wrappers and keys are generated. All credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
 
 ### One-Shot (no precompute/present split)
 
