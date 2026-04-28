@@ -9,11 +9,13 @@ import {
   WitnessCalculator,
   Credential,
   buildJwtCircuitInputs,
+  buildPrepare2VcCircuitInputs,
   buildShowCircuitInputs,
   signDeviceNonce,
   base64urlToBigInt,
   DEFAULT_JWT_PARAMS,
   DEFAULT_SHOW_PARAMS,
+  DEFAULT_SHOW_2VC_PARAMS,
 } from "../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -257,13 +259,40 @@ describe("Input Builders via SDK", () => {
     expect(inputs.claimValues.length).toBe(DEFAULT_SHOW_PARAMS.nClaims);
     expect(inputs.predicateClaimRefs.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
     expect(inputs.predicateOps.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
-    expect(inputs.predicateCompareValues.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
+    expect(inputs.predicateRhsIsRef.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
+    expect(inputs.predicateRhsValues.length).toBe(DEFAULT_SHOW_PARAMS.maxPredicates);
     expect(inputs.tokenTypes.length).toBe(DEFAULT_SHOW_PARAMS.maxLogicTokens);
     expect(inputs.tokenValues.length).toBe(DEFAULT_SHOW_PARAMS.maxLogicTokens);
 
     // Verify the device key coordinates match
     expect(inputs.deviceKeyX).toBe(base64urlToBigInt(deviceKey.x));
     expect(inputs.deviceKeyY).toBe(base64urlToBigInt(deviceKey.y));
+  });
+
+  it("buildShowCircuitInputs supports claim-to-claim RHS references", () => {
+    const signature = signDeviceNonce(VERIFIER_NONCE, DEVICE_PRIVATE_KEY_HEX);
+
+    const inputs = buildShowCircuitInputs(
+      DEFAULT_SHOW_PARAMS,
+      VERIFIER_NONCE,
+      signature,
+      DEVICE_PUBLIC_KEY,
+      {
+        normalizedClaimValues: [42n, 42n],
+        predicates: [
+          {
+            claimRef: 0,
+            op: 2,
+            rhsIsRef: true,
+            rhsValue: 1n,
+          },
+        ],
+      },
+    );
+
+    expect(inputs.predicateClaimRefs[0]).toBe(0n);
+    expect(inputs.predicateRhsIsRef[0]).toBe(1n);
+    expect(inputs.predicateRhsValues[0]).toBe(1n);
   });
 
   it("buildJwtCircuitInputs creates valid circuit inputs from generated JWT", () => {
@@ -300,6 +329,66 @@ describe("Input Builders via SDK", () => {
     expect(inputs.periodIndex).toBeGreaterThan(0);
     expect(inputs.matchesCount).toBe(additionalMatches.length + 2); // +2 for "x":" and "y":"
     expect(inputs.claimFormats.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
+  });
+
+  it("buildPrepare2VcCircuitInputs creates suffixed inputs for both credentials", () => {
+    const data = generateTestJwt();
+    const credential = Credential.parse(data.jwt, data.disclosures);
+    const additionalMatches = credential.disclosureHashes;
+    const decodeFlags = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 1 : 0,
+    );
+    const claimFormats = data.claims.map((c) =>
+      c.key === "roc_birthday" ? 3 : 4,
+    );
+
+    const jwtInputs = buildJwtCircuitInputs(
+      credential,
+      data.issuerPublicKey,
+      DEFAULT_JWT_PARAMS,
+      additionalMatches,
+      decodeFlags,
+      claimFormats,
+    );
+    const prepare2VcInputs = buildPrepare2VcCircuitInputs(jwtInputs, jwtInputs);
+
+    expect(prepare2VcInputs.message0.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
+    expect(prepare2VcInputs.message1.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
+    expect(prepare2VcInputs.sig_r0).toBe(jwtInputs.sig_r);
+    expect(prepare2VcInputs.sig_r1).toBe(jwtInputs.sig_r);
+    expect(prepare2VcInputs.claims0.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
+    expect(prepare2VcInputs.claims1.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
+  });
+
+  it("buildShowCircuitInputs can address the flattened 2VC claim namespace", () => {
+    const signature = signDeviceNonce(VERIFIER_NONCE, DEVICE_PRIVATE_KEY_HEX);
+    const inputs = buildShowCircuitInputs(
+      DEFAULT_SHOW_2VC_PARAMS,
+      VERIFIER_NONCE,
+      signature,
+      DEVICE_PUBLIC_KEY,
+      {
+        normalizedClaimValues: [10n, 20n, 30n, 20n],
+        predicates: [
+          { claimRef: 1, op: 2, rhsIsRef: true, rhsValue: 3n },
+          { claimRef: 2, op: 1, rhsValue: 25n },
+        ],
+        logicExpression: [
+          { type: 0, value: 0 },
+          { type: 0, value: 1 },
+          { type: 1, value: 0 },
+        ],
+      },
+    );
+
+    expect(inputs.claimValues).toEqual([10n, 20n, 30n, 20n]);
+    expect(inputs.predicateClaimRefs[0]).toBe(1n);
+    expect(inputs.predicateRhsIsRef[0]).toBe(1n);
+    expect(inputs.predicateRhsValues[0]).toBe(3n);
+    expect(inputs.predicateClaimRefs[1]).toBe(2n);
+    expect(inputs.predicateRhsIsRef[1]).toBe(0n);
+    expect(inputs.predicateRhsValues[1]).toBe(25n);
+    expect(inputs.exprLen).toBe(3n);
   });
 });
 

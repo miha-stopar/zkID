@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 use ecdsa_spartan2::{
-    parse_witness, prove_circuit_in_memory, reblind_in_memory, PrepareCircuit, ShowCircuit,
+    parse_witness, prove_circuit_in_memory, reblind_in_memory, Prepare2VcCircuit, PrepareCircuit,
+    Show2VcCircuit, ShowCircuit,
 };
 use ecdsa_spartan2::{Scalar, E};
 
@@ -217,6 +218,66 @@ pub fn precompute_show_from_witness(
             .map_err(|e| JsError::new(&format!("Instance serialization failed: {}", e)))?,
         witness: bincode::serialize(&witness)
             .map_err(|e| JsError::new(&format!("Witness serialization failed: {}", e)))?,
+    };
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsError::new(&format!("JS conversion failed: {}", e)))
+}
+
+/// Prove the two-credential Prepare circuit using externally generated witness bytes.
+#[wasm_bindgen]
+pub fn precompute_prepare_2vc_from_witness(
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    let pk: <R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey = bincode::deserialize(pk_bytes)
+        .map_err(|e| JsError::new(&format!("2VC Prepare PK deserialization failed: {}", e)))?;
+
+    let witness_scalars = parse_witness(witness_wtns_bytes)
+        .map_err(|e| JsError::new(&format!("2VC Prepare witness parsing failed: {:?}", e)))?;
+
+    let circuit = Prepare2VcCircuit::with_witness(witness_scalars);
+    let (proof, instance, witness) = prove_circuit_in_memory(circuit, &pk)
+        .map_err(|e| JsError::new(&format!("2VC Prepare proving failed: {:?}", e)))?;
+
+    let result = PrecomputeResult {
+        proof: bincode::serialize(&proof)
+            .map_err(|e| JsError::new(&format!("2VC Prepare proof serialization failed: {}", e)))?,
+        instance: bincode::serialize(&instance).map_err(|e| {
+            JsError::new(&format!("2VC Prepare instance serialization failed: {}", e))
+        })?,
+        witness: bincode::serialize(&witness).map_err(|e| {
+            JsError::new(&format!("2VC Prepare witness serialization failed: {}", e))
+        })?,
+    };
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsError::new(&format!("JS conversion failed: {}", e)))
+}
+
+/// Prove the two-credential Show circuit using externally generated witness bytes.
+#[wasm_bindgen]
+pub fn precompute_show_2vc_from_witness(
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    let pk: <R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey = bincode::deserialize(pk_bytes)
+        .map_err(|e| JsError::new(&format!("2VC Show PK deserialization failed: {}", e)))?;
+
+    let witness_scalars = parse_witness(witness_wtns_bytes)
+        .map_err(|e| JsError::new(&format!("2VC Show witness parsing failed: {:?}", e)))?;
+
+    let circuit = Show2VcCircuit::with_witness(witness_scalars);
+    let (proof, instance, witness) = prove_circuit_in_memory(circuit, &pk)
+        .map_err(|e| JsError::new(&format!("2VC Show proving failed: {:?}", e)))?;
+
+    let result = PrecomputeResult {
+        proof: bincode::serialize(&proof)
+            .map_err(|e| JsError::new(&format!("2VC Show proof serialization failed: {}", e)))?,
+        instance: bincode::serialize(&instance)
+            .map_err(|e| JsError::new(&format!("2VC Show instance serialization failed: {}", e)))?,
+        witness: bincode::serialize(&witness)
+            .map_err(|e| JsError::new(&format!("2VC Show witness serialization failed: {}", e)))?,
     };
 
     serde_wasm_bindgen::to_value(&result)

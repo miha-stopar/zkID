@@ -101,6 +101,8 @@ export interface MockDataOptions {
   kid?: string;
   targetPayloadLength?: number;
   claimFormats?: number[];
+  devicePrivateKey?: Uint8Array;
+  deviceKey?: JwkEcdsaPublicKey;
 }
 
 export interface MockDataResult {
@@ -123,7 +125,14 @@ export async function generateMockData(options: MockDataOptions = {}): Promise<M
   const claims = options.claims || defaultClaims;
   const kid = options.kid || "key-1";
   const issuerKeyData = await getIssuerKey(kid);
-  const { privateKey: devicePrivateKey, publicKey: deviceKey } = generateDeviceBindingKey();
+  if ((options.devicePrivateKey && !options.deviceKey) || (!options.devicePrivateKey && options.deviceKey)) {
+    throw new Error("devicePrivateKey and deviceKey must be provided together");
+  }
+  const deviceBinding = options.devicePrivateKey && options.deviceKey
+    ? { privateKey: options.devicePrivateKey, publicKey: options.deviceKey }
+    : generateDeviceBindingKey();
+  const devicePrivateKey = deviceBinding.privateKey;
+  const deviceKey = deviceBinding.publicKey;
 
   const privateKeyHex = Buffer.from(issuerKeyData.privateKey).toString("hex");
   const issuerJwkPrivate = {

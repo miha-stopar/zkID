@@ -18,6 +18,9 @@ export const CIRCUIT_SIZES: Record<string, number[]> = {
 
 // Predicate operator codes (see eval-predicate.circom).
 const OP_LE = 0;
+const OP_GE = 1;
+const LOGIC_REF = 0;
+const LOGIC_AND = 1;
 
 const FILL_RATIO = 0.8;
 
@@ -97,6 +100,78 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
 
   console.log(`  JWT  inputs → ${path.relative(circomDir, jwtOutputPath)}`);
   console.log(`  Show inputs → ${path.relative(circomDir, showOutputPath)}`);
+
+  // Option 2 / Track A fixture: two credentials bound to the same device key.
+  const secondClaimFormats = [PredicateFormat.STRING_EQ, PredicateFormat.UINT];
+  const mockData2 = await generateMockData({
+    circuitParams: params,
+    targetPayloadLength,
+    claimFormats: secondClaimFormats,
+    claims: [
+      { key: "membership", value: "GOLD" },
+      { key: "balance", value: "12000" },
+    ],
+    devicePrivateKey: mockData.devicePrivateKey,
+    deviceKey: mockData.deviceKey,
+    kid: "key-2",
+  });
+
+  const prepare2vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "prepare_2vc")
+    : path.join(circomDir, "inputs", "prepare_2vc", sizeName);
+  const show2vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "show_2vc")
+    : path.join(circomDir, "inputs", "show_2vc", sizeName);
+  fs.mkdirSync(prepare2vcOutputDir, { recursive: true });
+  fs.mkdirSync(show2vcOutputDir, { recursive: true });
+
+  const prepare2vcInputs = {
+    vc0: mockData.circuitInputs,
+    vc1: mockData2.circuitInputs,
+  };
+
+  const show2vcParams = {
+    nClaims: showParams.nClaims * 2,
+    maxPredicates: showParams.maxPredicates,
+    maxLogicTokens: showParams.maxLogicTokens,
+    valueBits: showParams.valueBits,
+  };
+
+  const show2vcInputs = generateShowInputs(
+    show2vcParams,
+    nonce,
+    deviceSignature,
+    mockData.deviceKey,
+    [...mockData.claims, ...mockData2.claims],
+  );
+
+  // pred0: VC0 roc_birthday <= adult cutoff
+  show2vcInputs.predicateLen = 2n;
+  show2vcInputs.predicateClaimRefs[0] = 1n;
+  show2vcInputs.predicateOps[0] = BigInt(OP_LE);
+  show2vcInputs.predicateRhsValues[0] = 1070101n;
+
+  // pred1: VC1 balance >= 10000
+  show2vcInputs.predicateClaimRefs[1] = 3n;
+  show2vcInputs.predicateOps[1] = BigInt(OP_GE);
+  show2vcInputs.predicateRhsValues[1] = 10000n;
+
+  // pred0 AND pred1
+  show2vcInputs.tokenTypes[0] = BigInt(LOGIC_REF);
+  show2vcInputs.tokenValues[0] = 0n;
+  show2vcInputs.tokenTypes[1] = BigInt(LOGIC_REF);
+  show2vcInputs.tokenValues[1] = 1n;
+  show2vcInputs.tokenTypes[2] = BigInt(LOGIC_AND);
+  show2vcInputs.tokenValues[2] = 0n;
+  show2vcInputs.exprLen = 3n;
+
+  const prepare2vcOutputPath = path.join(prepare2vcOutputDir, "default.json");
+  const show2vcOutputPath = path.join(show2vcOutputDir, "default.json");
+  fs.writeFileSync(prepare2vcOutputPath, JSON.stringify(prepare2vcInputs, bigintReplacer, 2));
+  fs.writeFileSync(show2vcOutputPath, JSON.stringify(show2vcInputs, bigintReplacer, 2));
+
+  console.log(`  Prepare2VC inputs → ${path.relative(circomDir, prepare2vcOutputPath)}`);
+  console.log(`  Show2VC inputs    → ${path.relative(circomDir, show2vcOutputPath)}`);
 }
 
 async function main(): Promise<void> {
@@ -107,8 +182,8 @@ async function main(): Promise<void> {
 Usage: npx ts-node src/generate-inputs.ts [options]
 
 Options:
-  --size <size>  Generate inputs for a specific circuit size (1k | 2k | 4k | 8k)
-  --all          Generate inputs for all sizes (1k, 2k, 4k, 8k)
+  --size <size>  Generate single-VC and 2VC inputs for a size (default | 1k | 2k | 4k | 8k)
+  --all          Generate single-VC and 2VC inputs for all sizes
   -h, --help     Show this help message
 
 Examples:

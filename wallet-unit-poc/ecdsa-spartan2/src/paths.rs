@@ -87,6 +87,14 @@ impl PathConfig {
         }
     }
 
+    pub fn prepare_2vc_input_json(&self) -> PathBuf {
+        self.input_json("prepare_2vc")
+    }
+
+    pub fn show_2vc_input_json(&self) -> PathBuf {
+        self.input_json("show_2vc")
+    }
+
     /// Resolve the R1CS file path for a circuit.
     ///
     /// For `"jwt"` the size-specific circuit name is used (e.g. `jwt_1k`).
@@ -111,6 +119,23 @@ impl PathConfig {
                 .join(format!("{}_js", name))
                 .join(format!("{}.r1cs", name))
         }
+    }
+
+    pub fn r1cs_path_prepare_2vc(&self) -> PathBuf {
+        if self.is_mobile {
+            self.r1cs_path("prepare_2vc")
+        } else {
+            let name = self.circuit_size.prepare_2vc_circuit_name();
+            self.base_dir
+                .join("../circom/build")
+                .join(name)
+                .join(format!("{}_js", name))
+                .join(format!("{}.r1cs", name))
+        }
+    }
+
+    pub fn r1cs_path_show_2vc(&self) -> PathBuf {
+        self.r1cs_path("show_2vc")
     }
 
     /// Resolve a key file path (proving/verifying keys).
@@ -162,14 +187,24 @@ impl PathConfig {
 pub mod keys {
     pub const PREPARE_PROVING_KEY: &str = "prepare_proving.key";
     pub const PREPARE_VERIFYING_KEY: &str = "prepare_verifying.key";
+    pub const PREPARE_2VC_PROVING_KEY: &str = "prepare_2vc_proving.key";
+    pub const PREPARE_2VC_VERIFYING_KEY: &str = "prepare_2vc_verifying.key";
     pub const SHOW_PROVING_KEY: &str = "show_proving.key";
     pub const SHOW_VERIFYING_KEY: &str = "show_verifying.key";
+    pub const SHOW_2VC_PROVING_KEY: &str = "show_2vc_proving.key";
+    pub const SHOW_2VC_VERIFYING_KEY: &str = "show_2vc_verifying.key";
     pub const PREPARE_PROOF: &str = "prepare_proof.bin";
     pub const PREPARE_WITNESS: &str = "prepare_witness.bin";
     pub const PREPARE_INSTANCE: &str = "prepare_instance.bin";
+    pub const PREPARE_2VC_PROOF: &str = "prepare_2vc_proof.bin";
+    pub const PREPARE_2VC_WITNESS: &str = "prepare_2vc_witness.bin";
+    pub const PREPARE_2VC_INSTANCE: &str = "prepare_2vc_instance.bin";
     pub const SHOW_PROOF: &str = "show_proof.bin";
     pub const SHOW_WITNESS: &str = "show_witness.bin";
     pub const SHOW_INSTANCE: &str = "show_instance.bin";
+    pub const SHOW_2VC_PROOF: &str = "show_2vc_proof.bin";
+    pub const SHOW_2VC_WITNESS: &str = "show_2vc_witness.bin";
+    pub const SHOW_2VC_INSTANCE: &str = "show_2vc_instance.bin";
     pub const SHARED_BLINDS: &str = "shared_blinds.bin";
 }
 

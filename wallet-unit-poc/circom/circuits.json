@@ -30,6 +30,37 @@
     "params": [2, 2, 8, 64],
     "pubs": ["deviceKeyX", "deviceKeyY"]
   },
+  "prepare_2vc": {
+    "file": "prepare_2sdjwt",
+    "template": "Prepare2SdJwt",
+    "params": [1920, 1900, 4, 50, 128]
+  },
+  "prepare_2vc_1k": {
+    "file": "prepare_2sdjwt",
+    "template": "Prepare2SdJwt",
+    "params": [1280, 960, 4, 50, 128]
+  },
+  "prepare_2vc_2k": {
+    "file": "prepare_2sdjwt",
+    "template": "Prepare2SdJwt",
+    "params": [2048, 2000, 4, 50, 128]
+  },
+  "prepare_2vc_4k": {
+    "file": "prepare_2sdjwt",
+    "template": "Prepare2SdJwt",
+    "params": [4096, 4000, 4, 50, 128]
+  },
+  "prepare_2vc_8k": {
+    "file": "prepare_2sdjwt",
+    "template": "Prepare2SdJwt",
+    "params": [8192, 8000, 4, 50, 128]
+  },
+  "show_2vc": {
+    "file": "show",
+    "template": "Show",
+    "params": [4, 2, 8, 64],
+    "pubs": ["deviceKeyX", "deviceKeyY"]
+  },
   "ecdsa": {
     "file": "ecdsa/ecdsa",
     "template": "ECDSA",

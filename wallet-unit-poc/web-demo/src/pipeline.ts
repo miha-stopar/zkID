@@ -21,6 +21,7 @@ import type { VcSize } from "../../openac-sdk/src/wasm-bridge.js";
 import { buildJwtCircuitInputs } from "../../openac-sdk/src/inputs/jwt-input-builder.js";
 import {
   buildShowCircuitInputs,
+  PredicateOp,
   signDeviceNonce,
 } from "../../openac-sdk/src/inputs/show-input-builder.js";
 import {
@@ -341,6 +342,9 @@ export async function precompute(
   const decodeFlags = data.claims.map((c) =>
     c.key === "roc_birthday" ? 1 : 0
   );
+  const claimFormats = data.claims.map((c) =>
+    c.key === "roc_birthday" ? 3 : 4
+  );
   const additionalMatches = credential.disclosureHashes;
 
   const jwtInputs = buildJwtCircuitInputs(
@@ -349,7 +353,7 @@ export async function precompute(
     JWT_PARAMS_1K,
     additionalMatches,
     decodeFlags,
-    birthdayIdx
+    claimFormats
   );
   logs.push({
     label: "Build JWT circuit inputs",
@@ -431,14 +435,23 @@ export async function present(
   // Build Show circuit inputs
   onProgress?.("Building Show circuit inputs...");
   t = performance.now();
-  const birthdayClaim = data.disclosures[precomp.birthdayClaimIndex]!;
+  const maxClaims = JWT_PARAMS_1K.maxMatches - 2;
+  const normalizedClaimValues = precomp.jwtWitness.slice(1, 1 + maxClaims);
   const showInputs = buildShowCircuitInputs(
     DEFAULT_SHOW_PARAMS,
     VERIFIER_NONCE,
     deviceSignature,
     data.devicePublicKey,
-    birthdayClaim,
-    { year: 2025, month: 1, day: 1 }
+    {
+      normalizedClaimValues,
+      predicates: [
+        {
+          claimRef: precomp.birthdayClaimIndex,
+          op: PredicateOp.LE,
+          rhsValue: 1070101n,
+        },
+      ],
+    }
   );
   logs.push({
     label: "Build Show circuit inputs",

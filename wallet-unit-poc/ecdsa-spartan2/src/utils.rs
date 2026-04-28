@@ -276,6 +276,78 @@ pub fn hashmap_to_json_string(
     serde_json::to_string(&json_map).map_err(|_| SynthesisError::Unsatisfiable)
 }
 
+pub fn parse_prepare_2vc_inputs(
+    json_value: &Value,
+) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
+    let vc0 = json_value
+        .get("vc0")
+        .ok_or(SynthesisError::AssignmentMissing)?;
+    let vc1 = json_value
+        .get("vc1")
+        .ok_or(SynthesisError::AssignmentMissing)?;
+
+    let mut inputs = HashMap::new();
+    for (suffix, vc) in [("0", vc0), ("1", vc1)] {
+        let parsed = parse_jwt_inputs(vc)?;
+        for (key, value) in parsed {
+            inputs.insert(format!("{key}{suffix}"), value);
+        }
+    }
+
+    Ok(inputs)
+}
+
+pub fn hashmap_to_json_string_prepare_2vc(
+    inputs: &HashMap<String, Vec<BigInt>>,
+    max_matches: usize,
+    max_substring_length: usize,
+    max_claims_length: usize,
+) -> Result<String, SynthesisError> {
+    use serde_json::json;
+
+    let max_claims = max_matches.saturating_sub(2);
+    let two_d_fields: HashMap<String, (usize, usize)> = [
+        ("claims0".to_string(), (max_claims, max_claims_length)),
+        ("claims1".to_string(), (max_claims, max_claims_length)),
+        (
+            "matchSubstring0".to_string(),
+            (max_matches, max_substring_length),
+        ),
+        (
+            "matchSubstring1".to_string(),
+            (max_matches, max_substring_length),
+        ),
+    ]
+    .into_iter()
+    .collect();
+
+    let mut json_map = serde_json::Map::new();
+    for (key, values) in inputs.iter() {
+        if let Some(&(rows, cols)) = two_d_fields.get(key) {
+            let mut array_2d = Vec::with_capacity(rows);
+            for i in 0..rows {
+                let start = i * cols;
+                let end = start + cols;
+                if end > values.len() {
+                    return Err(SynthesisError::Unsatisfiable);
+                }
+                let row: Vec<String> = values[start..end]
+                    .iter()
+                    .map(|bigint| bigint.to_string())
+                    .collect();
+                array_2d.push(json!(row));
+            }
+            json_map.insert(key.clone(), json!(array_2d));
+        } else {
+            let string_array: Vec<String> =
+                values.iter().map(|bigint| bigint.to_string()).collect();
+            json_map.insert(key.clone(), json!(string_array));
+        }
+    }
+
+    serde_json::to_string(&json_map).map_err(|_| SynthesisError::Unsatisfiable)
+}
+
 pub fn parse_byte(value: &Value) -> Result<u8, SynthesisError> {
     if let Some(as_str) = value.as_str() {
         let parsed = as_str
@@ -411,6 +483,26 @@ pub fn calculate_jwt_output_indices(
     _max_claims_length: usize,
 ) -> JwtOutputLayout {
     let claim_values_len = max_matches.saturating_sub(2);
+    let claim_values_start = 1;
+    let keybinding_x_index = claim_values_start + claim_values_len;
+    let keybinding_y_index = keybinding_x_index + 1;
+
+    JwtOutputLayout {
+        claim_values_start,
+        claim_values_len,
+        keybinding_x_index,
+        keybinding_y_index,
+    }
+}
+
+/// Public-output layout for `Prepare2SdJwt`:
+/// `normalizedClaimValuesAll[0..2*(maxMatches-2)]`, then `KeyBindingX`, `KeyBindingY`.
+pub fn calculate_prepare_2vc_output_indices(
+    max_matches: usize,
+    _max_claims_length: usize,
+) -> JwtOutputLayout {
+    let per_vc_claims = max_matches.saturating_sub(2);
+    let claim_values_len = 2 * per_vc_claims;
     let claim_values_start = 1;
     let keybinding_x_index = claim_values_start + claim_values_len;
     let keybinding_y_index = keybinding_x_index + 1;

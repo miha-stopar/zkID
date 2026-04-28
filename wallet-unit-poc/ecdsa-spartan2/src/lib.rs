@@ -21,7 +21,10 @@ pub mod utils;
 
 // Re-export commonly used types and functions
 pub use circuit_size::CircuitSize;
-pub use circuits::{prepare_circuit::PrepareCircuit, show_circuit::ShowCircuit};
+pub use circuits::{
+    prepare_2vc_circuit::Prepare2VcCircuit, prepare_circuit::PrepareCircuit,
+    show_2vc_circuit::Show2VcCircuit, show_circuit::ShowCircuit,
+};
 pub use paths::PathConfig;
 pub use prover::{generate_prepare_witness, prove_circuit_in_memory, reblind_in_memory};
 #[cfg(not(target_arch = "wasm32"))]
@@ -35,6 +38,7 @@ pub use setup::{
     load_witness, save_keys, setup_circuit_keys, setup_circuit_keys_no_save,
 };
 pub use utils::{
-    bigint_to_scalar, calculate_jwt_output_indices, convert_bigint_to_scalar, parse_jwt_inputs,
-    parse_show_inputs, parse_witness,
+    bigint_to_scalar, calculate_jwt_output_indices, calculate_prepare_2vc_output_indices,
+    convert_bigint_to_scalar, parse_jwt_inputs, parse_prepare_2vc_inputs, parse_show_inputs,
+    parse_witness,
 };

@@ -25,6 +25,15 @@ impl CircuitSize {
         }
     }
 
+    pub fn prepare_2vc_circuit_name(self) -> &'static str {
+        match self {
+            CircuitSize::Kb1 => "prepare_2vc_1k",
+            CircuitSize::Kb2 => "prepare_2vc_2k",
+            CircuitSize::Kb4 => "prepare_2vc_4k",
+            CircuitSize::Kb8 => "prepare_2vc_8k",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             CircuitSize::Kb1 => "1k",
@@ -69,6 +78,10 @@ impl CircuitSize {
     /// This must equal the Show circuit's `nClaims` template parameter.
     pub fn n_claims(self) -> usize {
         self.max_matches() - 2
+    }
+
+    pub fn n_claims_2vc(self) -> usize {
+        2 * self.n_claims()
     }
 }
 

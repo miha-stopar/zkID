@@ -42,13 +42,18 @@ export const LogicToken = {
 export interface PredicateSpec {
   claimRef: number;
   op: number;
-  compareValue: bigint;
+  /** True when rhsValue is a claim reference, false when rhsValue is a literal. */
+  rhsIsRef?: boolean;
+  /** Literal comparison value, or RHS claim index when rhsIsRef is true. */
+  rhsValue?: bigint;
+  /** @deprecated Use rhsValue. Kept as a compatibility alias for literal predicates. */
+  compareValue?: bigint;
 }
 
 export interface ShowInputOptions {
   /** Normalized claim values (from JWT circuit output). */
   normalizedClaimValues?: bigint[];
-  /** Predicate specifications. Defaults to a single EQ predicate on claim 0. */
+  /** Predicate specifications. Defaults to a single EQ literal predicate on claim 0. */
   predicates?: PredicateSpec[];
   /** Postfix logic expression as [tokenType, tokenValue] pairs. Defaults to REF(0). */
   logicExpression?: Array<{ type: number; value: number }>;
@@ -99,18 +104,53 @@ export function buildShowCircuitInputs(
 
   // Build predicates
   const predicates = options.predicates ?? [
-    { claimRef: 0, op: PredicateOp.EQ, compareValue: claimValues[0]! },
+    { claimRef: 0, op: PredicateOp.EQ, rhsValue: claimValues[0]! },
   ];
+  if (predicates.length > params.maxPredicates) {
+    throw new InputError(
+      "PARAMS_EXCEEDED",
+      `Predicate count (${predicates.length}) exceeds maxPredicates (${params.maxPredicates})`,
+    );
+  }
   const predicateLen = BigInt(predicates.length);
 
   const predicateClaimRefs: bigint[] = Array(params.maxPredicates).fill(0n);
   const predicateOps: bigint[] = Array(params.maxPredicates).fill(BigInt(PredicateOp.EQ));
-  const predicateCompareValues: bigint[] = Array(params.maxPredicates).fill(claimValues[0] ?? 0n);
+  const predicateRhsIsRef: bigint[] = Array(params.maxPredicates).fill(0n);
+  const predicateRhsValues: bigint[] = Array(params.maxPredicates).fill(claimValues[0] ?? 0n);
 
-  for (let i = 0; i < Math.min(params.maxPredicates, predicates.length); i++) {
-    predicateClaimRefs[i] = BigInt(predicates[i]!.claimRef);
-    predicateOps[i] = BigInt(predicates[i]!.op);
-    predicateCompareValues[i] = predicates[i]!.compareValue;
+  for (let i = 0; i < predicates.length; i++) {
+    const predicate = predicates[i]!;
+    if (predicate.claimRef < 0 || predicate.claimRef >= params.nClaims) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Predicate ${i} claimRef (${predicate.claimRef}) is outside nClaims (${params.nClaims})`,
+      );
+    }
+
+    const rhsValue = predicate.rhsValue ?? predicate.compareValue;
+    if (rhsValue === undefined) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Predicate ${i} must provide rhsValue`,
+      );
+    }
+
+    const rhsIsRef = predicate.rhsIsRef === true;
+    if (rhsIsRef) {
+      const rhsRef = Number(rhsValue);
+      if (!Number.isSafeInteger(rhsRef) || rhsRef < 0 || rhsRef >= params.nClaims) {
+        throw new InputError(
+          "PARAMS_EXCEEDED",
+          `Predicate ${i} RHS claim reference (${rhsValue}) is outside nClaims (${params.nClaims})`,
+        );
+      }
+    }
+
+    predicateClaimRefs[i] = BigInt(predicate.claimRef);
+    predicateOps[i] = BigInt(predicate.op);
+    predicateRhsIsRef[i] = rhsIsRef ? 1n : 0n;
+    predicateRhsValues[i] = rhsValue;
   }
 
   // Build logic expression tokens
@@ -142,7 +182,8 @@ export function buildShowCircuitInputs(
     claimValues,
     predicateClaimRefs,
     predicateOps,
-    predicateCompareValues,
+    predicateRhsIsRef,
+    predicateRhsValues,
     tokenTypes,
     tokenValues,
     exprLen,

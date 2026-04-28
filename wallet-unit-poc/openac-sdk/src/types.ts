@@ -38,11 +38,24 @@ export const DEFAULT_JWT_PARAMS: JwtCircuitParams = {
   maxClaimLength: 128,
 };
 
+export const DEFAULT_JWT_1K_PARAMS: JwtCircuitParams = {
+  maxMessageLength: 1280,
+  maxB64PayloadLength: 960,
+  maxMatches: 4,
+  maxSubstringLength: 50,
+  maxClaimLength: 128,
+};
+
 export const DEFAULT_SHOW_PARAMS: ShowCircuitParams = {
   nClaims: 2,
   maxPredicates: 2,
   maxLogicTokens: 8,
   valueBits: 64,
+};
+
+export const DEFAULT_SHOW_2VC_PARAMS: ShowCircuitParams = {
+  ...DEFAULT_SHOW_PARAMS,
+  nClaims: DEFAULT_SHOW_PARAMS.nClaims * 2,
 };
 
 // ECDSA P-256 public key in JWK format
@@ -237,6 +250,10 @@ export interface JwtCircuitInputs {
   claimFormats: bigint[];
 }
 
+export type Prepare2VcCircuitInputs = {
+  [K in keyof JwtCircuitInputs as `${K & string}${0 | 1}`]: JwtCircuitInputs[K];
+};
+
 // Raw circuit inputs for the Show circuit
 export interface ShowCircuitInputs {
   deviceKeyX: bigint;
@@ -248,7 +265,8 @@ export interface ShowCircuitInputs {
   claimValues: bigint[];
   predicateClaimRefs: bigint[];
   predicateOps: bigint[];
-  predicateCompareValues: bigint[];
+  predicateRhsIsRef: bigint[];
+  predicateRhsValues: bigint[];
   tokenTypes: bigint[];
   tokenValues: bigint[];
   exprLen: bigint;
@@ -266,10 +284,26 @@ export interface PrecomputeRequest {
   additionalMatches?: string[];
 }
 
+export interface MultiCredentialInput {
+  jwt: string;
+  disclosures: string[];
+  issuerPublicKey: IssuerPublicKey;
+  decodeFlags?: number[];
+  claimFormats?: number[];
+  additionalMatches?: string[];
+}
+
 export interface SerializedCredential {
   jwt: string;
   disclosures: string[];
   deviceBindingKey: EcdsaPublicKey;
+}
+
+export interface ClaimNamespaceEntry {
+  globalIndex: number;
+  credentialIndex: number;
+  claimIndex: number;
+  claimName: string;
 }
 
 export interface PrecomputedCredential {
@@ -283,6 +317,28 @@ export interface PrecomputedCredential {
   timing: PrecomputeTiming;
   serialize(): Uint8Array;
   toJSON(): SerializedPrecomputedCredentialJSON;
+}
+
+export interface PrecomputeMultiRequest {
+  credentials: [MultiCredentialInput, MultiCredentialInput];
+  keys: KeySet;
+  jwtParams?: JwtCircuitParams;
+}
+
+export interface PrecomputedMultiCredential {
+  kind: "multi-vc-2";
+  prepareProof: Uint8Array;
+  prepareInstance: Uint8Array;
+  prepareWitness: Uint8Array;
+  credentials: SerializedCredential[];
+  deviceKey: EcdsaPublicKey;
+  credentialCount: 2;
+  claimsPerCredential: number;
+  normalizedClaimValues: bigint[];
+  claimNamespace: ClaimNamespaceEntry[];
+  timing: PrecomputeTiming;
+  serialize(): Uint8Array;
+  toJSON(): SerializedPrecomputedMultiCredentialJSON;
 }
 
 export interface PrecomputeTiming {
@@ -304,8 +360,31 @@ export interface SerializedPrecomputedCredentialJSON {
   deviceKey: EcdsaPublicKey;
 }
 
+export interface SerializedPrecomputedMultiCredentialJSON {
+  version: string;
+  kind: "multi-vc-2";
+  prepareProof: string;
+  prepareInstance: string;
+  prepareWitness: string;
+  credentials: SerializedCredential[];
+  deviceKey: EcdsaPublicKey;
+  credentialCount: 2;
+  claimsPerCredential: number;
+  normalizedClaimValues: string[];
+  claimNamespace: ClaimNamespaceEntry[];
+}
+
 export interface PresentRequest {
   precomputed: PrecomputedCredential;
+  verifierNonce: string;
+  devicePrivateKey: EcdsaPrivateKey;
+  keys: KeySet;
+  showParams?: ShowCircuitParams;
+  showInputOptions?: import("./inputs/show-input-builder.js").ShowInputOptions;
+}
+
+export interface PresentMultiRequest {
+  precomputed: PrecomputedMultiCredential;
   verifierNonce: string;
   devicePrivateKey: EcdsaPrivateKey;
   keys: KeySet;

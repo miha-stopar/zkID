@@ -20,6 +20,7 @@ import { Credential } from "../credential.js";
 import type {
   JwtCircuitParams,
   JwtCircuitInputs,
+  Prepare2VcCircuitInputs,
   EcdsaPublicKey,
   PemPublicKey,
   IssuerPublicKey,
@@ -252,4 +253,26 @@ export function buildJwtCircuitInputs(
     decodeFlags: decodeFlagsOut,
     claimFormats: claimFormatsOut,
   };
+}
+
+export function buildPrepare2VcCircuitInputs(
+  vc0: JwtCircuitInputs,
+  vc1: JwtCircuitInputs,
+): Prepare2VcCircuitInputs {
+  return {
+    ...suffixJwtInputs(vc0, 0),
+    ...suffixJwtInputs(vc1, 1),
+  } as Prepare2VcCircuitInputs;
+}
+
+function suffixJwtInputs(
+  inputs: JwtCircuitInputs,
+  suffix: 0 | 1,
+): Partial<Prepare2VcCircuitInputs> {
+  const output: Partial<Prepare2VcCircuitInputs> = {};
+  for (const key of Object.keys(inputs) as Array<keyof JwtCircuitInputs>) {
+    const suffixedKey = `${key}${suffix}` as keyof Prepare2VcCircuitInputs;
+    output[suffixedKey] = inputs[key] as never;
+  }
+  return output;
 }

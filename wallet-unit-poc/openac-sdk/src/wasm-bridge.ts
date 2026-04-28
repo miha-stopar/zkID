@@ -47,6 +47,14 @@ interface OpenACWasmModule {
     pk: Uint8Array,
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
+  precompute_prepare_2vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  precompute_show_2vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
   present(
     preparePk: Uint8Array,
     prepareInstance: Uint8Array,
@@ -113,11 +121,15 @@ export class WasmBridge {
 
     if (wasmPath) {
       const module = await import(/* webpackIgnore: true */ wasmPath);
+      if (typeof module.default === "function") {
+        await module.default();
+      }
       this.wasm = module as OpenACWasmModule;
     } else {
       try {
         const module = await import("../wasm/pkg/openac_wasm.js");
-        this.wasm = module as OpenACWasmModule;
+        await initBundledWasmPackModule(module);
+        this.wasm = module as unknown as OpenACWasmModule;
       } catch {
         throw new WasmError(
           "WASM_LOAD_FAILED",
@@ -180,6 +192,39 @@ export class WasmBridge {
     return { preparePk, prepareVk, showPk, showVk };
   }
 
+  async loadMultiKeys(baseUrl: string, vcSize: VcSize): Promise<SetupKeys> {
+    const prefix = `${vcSize}_`;
+    const keyFiles = [
+      `${prefix}prepare_2vc_proving.key`,
+      `${prefix}prepare_2vc_verifying.key`,
+      `${prefix}show_2vc_proving.key`,
+      `${prefix}show_2vc_verifying.key`,
+    ];
+
+    const fetchKey = async (filename: string): Promise<Uint8Array> => {
+      const url = `${baseUrl}/${filename}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new WasmError(
+          "KEY_LOAD_FAILED",
+          `Failed to load key from ${url}: ${response.status} ${response.statusText}`,
+        );
+      }
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    };
+
+    const keys = await Promise.all(keyFiles.map(fetchKey));
+    const [preparePk, prepareVk, showPk, showVk] = keys as [
+      Uint8Array,
+      Uint8Array,
+      Uint8Array,
+      Uint8Array,
+    ];
+
+    return { preparePk, prepareVk, showPk, showVk };
+  }
+
   async precomputeFromWitness(
     preparePk: Uint8Array,
     witnessWtns: Uint8Array,
@@ -199,6 +244,35 @@ export class WasmBridge {
   ): Promise<PrecomputeState> {
     const wasm = this.getWasm();
     const result = wasm.precompute_show_from_witness(showPk, witnessWtns);
+    return {
+      proof: new Uint8Array(result.proof),
+      instance: new Uint8Array(result.instance),
+      witness: new Uint8Array(result.witness),
+    };
+  }
+
+  async precomputePrepare2VcFromWitness(
+    preparePk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const wasm = this.getWasm();
+    const result = wasm.precompute_prepare_2vc_from_witness(
+      preparePk,
+      witnessWtns,
+    );
+    return {
+      proof: new Uint8Array(result.proof),
+      instance: new Uint8Array(result.instance),
+      witness: new Uint8Array(result.witness),
+    };
+  }
+
+  async precomputeShow2VcFromWitness(
+    showPk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const wasm = this.getWasm();
+    const result = wasm.precompute_show_2vc_from_witness(showPk, witnessWtns);
     return {
       proof: new Uint8Array(result.proof),
       instance: new Uint8Array(result.instance),
@@ -285,4 +359,28 @@ export class WasmBridge {
     const wasm = this.getWasm();
     return wasm.compare_comm_w_shared(prepareInstance, showInstance);
   }
+}
+
+async function initBundledWasmPackModule(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  module: any,
+): Promise<void> {
+  if (typeof module.default !== "function") return;
+
+  if (isNodeLikeRuntime()) {
+    const { readFile } = await import("node:fs/promises");
+    const wasmUrl = new URL("../wasm/pkg/openac_wasm_bg.wasm", import.meta.url);
+    await module.default({ module_or_path: await readFile(wasmUrl) });
+    return;
+  }
+
+  await module.default();
+}
+
+function isNodeLikeRuntime(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.versions === "object" &&
+    typeof process.versions.node === "string"
+  );
 }

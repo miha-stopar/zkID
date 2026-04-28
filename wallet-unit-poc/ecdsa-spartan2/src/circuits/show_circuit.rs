@@ -13,8 +13,18 @@ use std::{
 };
 use tracing::info;
 
-#[cfg(feature = "native-witness")]
+#[cfg(all(feature = "native-witness", has_circuit_show))]
 witnesscalc_adapter::witness!(show);
+
+#[cfg(all(feature = "native-witness", has_circuit_show))]
+fn call_show_witness(inputs_json: &str) -> Result<Vec<u8>, SynthesisError> {
+    show_witness(inputs_json).map_err(|_| SynthesisError::Unsatisfiable)
+}
+
+#[cfg(not(all(feature = "native-witness", has_circuit_show)))]
+fn call_show_witness(_inputs_json: &str) -> Result<Vec<u8>, SynthesisError> {
+    Err(SynthesisError::Unsatisfiable)
+}
 
 // show.circom
 #[derive(Debug, Clone)]
@@ -109,8 +119,7 @@ impl ShowCircuit {
             self.path_config.circuit_size.max_substring_length(),
             self.path_config.circuit_size.max_claims_length(),
         )?;
-        let witness_bytes =
-            show_witness(&inputs_json).map_err(|_| SynthesisError::Unsatisfiable)?;
+        let witness_bytes = call_show_witness(&inputs_json)?;
 
         info!("witnesscalc time: {} ms", t0.elapsed().as_millis());
 
@@ -192,8 +201,7 @@ impl SpartanCircuit<E> for ShowCircuit {
         &self,
         cs: &mut CS,
     ) -> Result<Vec<AllocatedNum<Scalar>>, SynthesisError> {
-        let layout =
-            calculate_show_witness_indices(self.path_config.circuit_size.n_claims());
+        let layout = calculate_show_witness_indices(self.path_config.circuit_size.n_claims());
 
         // Check cached witness first (covers with_witness() path), then try
         // generating from input_path (native path). Returns None during setup.

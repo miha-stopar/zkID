@@ -26,6 +26,7 @@ export interface NativeBackendConfig {
   binaryPath?: string;
   workDir?: string;
   inputDir?: string;
+  vcSize?: "1k" | "2k" | "4k" | "8k";
   env?: Record<string, string>;
 }
 
@@ -33,12 +34,14 @@ export class NativeBackend {
   private binaryPath: string;
   private workDir: string;
   private inputDir: string;
+  private vcSize: "1k" | "2k" | "4k" | "8k";
   private env: Record<string, string>;
 
   constructor(config: NativeBackendConfig = {}) {
     this.binaryPath = config.binaryPath ?? this.findBinary();
     this.workDir = config.workDir ?? this.findWorkDir();
     this.inputDir = config.inputDir ?? join(this.workDir, "..", "circom", "inputs");
+    this.vcSize = config.vcSize ?? "1k";
     this.env = {
       RUST_LOG: "info",
       ...this.buildDylibEnv(),
@@ -126,6 +129,18 @@ export class NativeBackend {
     await this.run(args, 600_000);
   }
 
+  async setupPrepare2Vc(inputPath?: string): Promise<void> {
+    const args = ["prepare-2vc", "setup"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 1_800_000);
+  }
+
+  async setupShow2Vc(inputPath?: string): Promise<void> {
+    const args = ["show-2vc", "setup"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 600_000);
+  }
+
   async setup(inputPath?: string): Promise<void> {
     await this.setupPrepare(inputPath);
     await this.setupShow(inputPath);
@@ -143,6 +158,18 @@ export class NativeBackend {
     await this.run(args, 120_000);
   }
 
+  async provePrepare2Vc(inputPath?: string): Promise<void> {
+    const args = ["prepare-2vc", "prove"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 600_000);
+  }
+
+  async proveShow2Vc(inputPath?: string): Promise<void> {
+    const args = ["show-2vc", "prove"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 120_000);
+  }
+
   async generateSharedBlinds(): Promise<void> {
     await this.run(["generate_shared_blinds"]);
   }
@@ -153,6 +180,14 @@ export class NativeBackend {
 
   async reblindShow(): Promise<void> {
     await this.run(["show", "reblind"], 120_000);
+  }
+
+  async reblindPrepare2Vc(): Promise<void> {
+    await this.run(["prepare-2vc", "reblind"], 600_000);
+  }
+
+  async reblindShow2Vc(): Promise<void> {
+    await this.run(["show-2vc", "reblind"], 120_000);
   }
 
   async verifyPrepare(): Promise<NativeVerificationResult> {
@@ -166,6 +201,24 @@ export class NativeBackend {
 
   async verifyShow(): Promise<NativeVerificationResult> {
     const { stdout, stderr } = await this.run(["show", "verify"]);
+    const output = stdout + stderr;
+    return {
+      valid: output.includes("Verification successful"),
+      output,
+    };
+  }
+
+  async verifyPrepare2Vc(): Promise<NativeVerificationResult> {
+    const { stdout, stderr } = await this.run(["prepare-2vc", "verify"]);
+    const output = stdout + stderr;
+    return {
+      valid: output.includes("Verification successful"),
+      output,
+    };
+  }
+
+  async verifyShow2Vc(): Promise<NativeVerificationResult> {
+    const { stdout, stderr } = await this.run(["show-2vc", "verify"]);
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -188,8 +241,16 @@ export class NativeBackend {
     await this.reblindShow();
   }
 
+  async proveAll2Vc(prepareInputPath?: string, showInputPath?: string): Promise<void> {
+    await this.generateSharedBlinds();
+    await this.provePrepare2Vc(prepareInputPath);
+    await this.reblindPrepare2Vc();
+    await this.proveShow2Vc(showInputPath);
+    await this.reblindShow2Vc();
+  }
+
   async loadArtifact(filename: string): Promise<Uint8Array> {
-    const path = join(this.workDir, "keys", filename);
+    const path = this.resolveArtifactPath(filename);
     return new Uint8Array(await readFile(path));
   }
 
@@ -199,12 +260,48 @@ export class NativeBackend {
     await writeFile(join(dir, filename), data);
   }
 
+  private resolveArtifactPath(filename: string): string {
+    const direct = join(this.workDir, "keys", filename);
+    if (existsSync(direct)) return direct;
+
+    return join(this.workDir, "keys", `${this.vcSize}_${filename}`);
+  }
+
+  private artifactExists(filename: string): boolean {
+    return (
+      existsSync(join(this.workDir, "keys", filename)) ||
+      existsSync(join(this.workDir, "keys", `${this.vcSize}_${filename}`))
+    );
+  }
+
   async loadKeys(): Promise<KeySet> {
     const [ppk, pvk, spk, svk] = await Promise.all([
       this.loadArtifact("prepare_proving.key"),
       this.loadArtifact("prepare_verifying.key"),
       this.loadArtifact("show_proving.key"),
       this.loadArtifact("show_verifying.key"),
+    ]);
+
+    return {
+      prepareProvingKey: ppk,
+      prepareVerifyingKey: pvk,
+      showProvingKey: spk,
+      showVerifyingKey: svk,
+      verifyingKeys(): VerifyingKeys {
+        return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
+      },
+      serialize(): SerializedKeySet {
+        return { prepareProvingKey: ppk, prepareVerifyingKey: pvk, showProvingKey: spk, showVerifyingKey: svk };
+      },
+    };
+  }
+
+  async loadMultiKeys(): Promise<KeySet> {
+    const [ppk, pvk, spk, svk] = await Promise.all([
+      this.loadArtifact("prepare_2vc_proving.key"),
+      this.loadArtifact("prepare_2vc_verifying.key"),
+      this.loadArtifact("show_2vc_proving.key"),
+      this.loadArtifact("show_2vc_verifying.key"),
     ]);
 
     return {
@@ -251,6 +348,36 @@ export class NativeBackend {
     };
   }
 
+  async loadMultiProofs(): Promise<{
+    prepareProof: Uint8Array;
+    showProof: Uint8Array;
+    prepareInstance: Uint8Array;
+    showInstance: Uint8Array;
+    prepareWitness: Uint8Array;
+    showWitness: Uint8Array;
+    sharedBlinds: Uint8Array;
+  }> {
+    const [pp, sp, pi, si, pw, sw, sb] = await Promise.all([
+      this.loadArtifact("prepare_2vc_proof.bin"),
+      this.loadArtifact("show_2vc_proof.bin"),
+      this.loadArtifact("prepare_2vc_instance.bin"),
+      this.loadArtifact("show_2vc_instance.bin"),
+      this.loadArtifact("prepare_2vc_witness.bin"),
+      this.loadArtifact("show_2vc_witness.bin"),
+      this.loadArtifact("shared_blinds.bin"),
+    ]);
+
+    return {
+      prepareProof: pp,
+      showProof: sp,
+      prepareInstance: pi,
+      showInstance: si,
+      prepareWitness: pw,
+      showWitness: sw,
+      sharedBlinds: sb,
+    };
+  }
+
   get directory(): string {
     return this.workDir;
   }
@@ -261,15 +388,29 @@ export class NativeBackend {
 
   get keysExist(): boolean {
     return (
-      existsSync(join(this.workDir, "keys", "prepare_proving.key")) &&
-      existsSync(join(this.workDir, "keys", "show_proving.key"))
+      this.artifactExists("prepare_proving.key") &&
+      this.artifactExists("show_proving.key")
+    );
+  }
+
+  get multiKeysExist(): boolean {
+    return (
+      this.artifactExists("prepare_2vc_proving.key") &&
+      this.artifactExists("show_2vc_proving.key")
     );
   }
 
   get proofsExist(): boolean {
     return (
-      existsSync(join(this.workDir, "keys", "prepare_proof.bin")) &&
-      existsSync(join(this.workDir, "keys", "show_proof.bin"))
+      this.artifactExists("prepare_proof.bin") &&
+      this.artifactExists("show_proof.bin")
+    );
+  }
+
+  get multiProofsExist(): boolean {
+    return (
+      this.artifactExists("prepare_2vc_proof.bin") &&
+      this.artifactExists("show_2vc_proof.bin")
     );
   }
 }

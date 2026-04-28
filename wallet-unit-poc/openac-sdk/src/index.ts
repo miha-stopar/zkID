@@ -12,8 +12,11 @@ import type {
   SerializedKeySet,
   SerializedProof,
   PrecomputeRequest,
+  PrecomputeMultiRequest,
   PrecomputedCredential,
+  PrecomputedMultiCredential,
   PresentRequest,
+  PresentMultiRequest,
   PresentationProof,
 } from "./types.js";
 
@@ -73,6 +76,16 @@ export class OpenAC {
     );
   }
 
+  async loadMultiKeysFromUrl(baseUrl: string, vcSize: VcSize): Promise<KeySet> {
+    const keys = await this.bridge.loadMultiKeys(baseUrl, vcSize);
+    return createKeySet(
+      keys.preparePk,
+      keys.prepareVk,
+      keys.showPk,
+      keys.showVk,
+    );
+  }
+
   async loadKeys(data: SerializedKeySet): Promise<KeySet> {
     return createKeySet(
       data.prepareProvingKey,
@@ -86,8 +99,18 @@ export class OpenAC {
     return this.prover.precompute(request);
   }
 
+  async precomputeMulti(
+    request: PrecomputeMultiRequest,
+  ): Promise<PrecomputedMultiCredential> {
+    return this.prover.precomputeMulti(request);
+  }
+
   async present(request: PresentRequest): Promise<PresentationProof> {
     return this.prover.present(request);
+  }
+
+  async presentMulti(request: PresentMultiRequest): Promise<PresentationProof> {
+    return this.prover.presentMulti(request);
   }
 
   async verify(
@@ -164,12 +187,19 @@ function createKeySet(
 
 // Re-exports
 export { Credential } from "./credential.js";
-export { Prover, deserializePrecomputed } from "./prover.js";
+export {
+  Prover,
+  deserializePrecomputed,
+  deserializePrecomputedMulti,
+} from "./prover.js";
 export { Verifier } from "./verifier.js";
 export { WitnessCalculator } from "./witness-calculator.js";
 export { NativeBackend } from "./native-backend.js";
 export type { NativeBackendConfig } from "./native-backend.js";
-export { buildJwtCircuitInputs } from "./inputs/jwt-input-builder.js";
+export {
+  buildJwtCircuitInputs,
+  buildPrepare2VcCircuitInputs,
+} from "./inputs/jwt-input-builder.js";
 export {
   buildShowCircuitInputs,
   signDeviceNonce,
@@ -207,17 +237,24 @@ export type {
   JwtCircuitParams,
   ShowCircuitParams,
   JwtCircuitInputs,
+  Prepare2VcCircuitInputs,
   ShowCircuitInputs,
   CircuitArtifacts,
   ErrorCode,
   PrecomputeRequest,
+  PrecomputeMultiRequest,
   PrecomputedCredential,
+  PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
+  PresentMultiRequest,
   PresentationProof,
   PresentationTiming,
+  MultiCredentialInput,
+  ClaimNamespaceEntry,
   SerializedCredential,
   SerializedPrecomputedCredentialJSON,
+  SerializedPrecomputedMultiCredentialJSON,
 } from "./types.js";
 
 export {
@@ -244,4 +281,9 @@ export {
   P256_SCALAR_ORDER,
 } from "./utils.js";
 
-export { DEFAULT_JWT_PARAMS, DEFAULT_SHOW_PARAMS } from "./types.js";
+export {
+  DEFAULT_JWT_PARAMS,
+  DEFAULT_JWT_1K_PARAMS,
+  DEFAULT_SHOW_PARAMS,
+  DEFAULT_SHOW_2VC_PARAMS,
+} from "./types.js";

@@ -43,7 +43,7 @@ const proof = await openac.present({
   keys,
   showInputOptions: {
     normalizedClaimValues: [890615n],
-    predicates: [{ claimRef: 0, op: PredicateOp.GE, compareValue: 18n }],
+    predicates: [{ claimRef: 0, op: PredicateOp.GE, rhsValue: 18n }],
   },
 });
 ```
@@ -62,6 +62,43 @@ result.valid;            // true
 result.expressionResult; // true (predicate passed)
 result.deviceKey;        // { x: '0x...', y: '0x...' }
 ```
+
+### Two Credentials
+
+```typescript
+import { OpenAC, LogicToken, PredicateOp } from "openac-sdk";
+
+const openac = await OpenAC.init({ assetsDir: "./assets" });
+const keys = await openac.loadMultiKeysFromUrl("https://cdn.example/keys", "1k");
+
+const precomputed = await openac.precomputeMulti({
+  credentials: [
+    { jwt: idCredential, disclosures: idDisclosures, issuerPublicKey: idIssuer },
+    { jwt: membershipCredential, disclosures: membershipDisclosures, issuerPublicKey: membershipIssuer },
+  ],
+  keys,
+});
+
+const proof = await openac.presentMulti({
+  precomputed,
+  verifierNonce: "challenge-123",
+  devicePrivateKey: "0xabcdef...",
+  keys,
+  showInputOptions: {
+    predicates: [
+      { claimRef: 1, op: PredicateOp.LE, rhsValue: 1070101n },
+      { claimRef: 3, op: PredicateOp.GE, rhsValue: 10000n },
+    ],
+    logicExpression: [
+      { type: LogicToken.REF, value: 0 },
+      { type: LogicToken.REF, value: 1 },
+      { type: LogicToken.AND, value: 0 },
+    ],
+  },
+});
+```
+
+`precomputeMulti` accepts exactly two SD-JWT credentials for the V1 circuit. Both credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
 
 ### One-Shot (no precompute/present split)
 
@@ -87,8 +124,8 @@ import { PredicateOp, LogicToken, buildShowCircuitInputs, DEFAULT_SHOW_PARAMS } 
 const showInputs = buildShowCircuitInputs(DEFAULT_SHOW_PARAMS, nonce, sig, deviceKey, {
   normalizedClaimValues: [25n, 1n],
   predicates: [
-    { claimRef: 0, op: PredicateOp.GE, compareValue: 18n },
-    { claimRef: 1, op: PredicateOp.EQ, compareValue: 1n },
+    { claimRef: 0, op: PredicateOp.GE, rhsValue: 18n },
+    { claimRef: 1, op: PredicateOp.EQ, rhsValue: 1n },
   ],
   logicExpression: [
     { type: LogicToken.REF, value: 0 },
@@ -106,9 +143,12 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 |--------|-------------|
 | `OpenAC.init(config?)` | Load WASM prover |
 | `openac.loadKeysFromUrl(url, size)` | Fetch keys (`'1k'`/`'2k'`/`'4k'`/`'8k'`) |
+| `openac.loadMultiKeysFromUrl(url, size)` | Fetch 2VC Prepare/Show keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
 | `openac.precompute(req)` | Prove JWT validity (cache this) |
 | `openac.present(req)` | Prove predicates + device key |
+| `openac.precomputeMulti(req)` | Prove two JWTs and cache flattened claims |
+| `openac.presentMulti(req)` | Prove predicates over both credentials |
 | `openac.verify(proof, keys)` | Verify proof |
 | `openac.createProof(req)` | One-shot prove |
 | `openac.verifyProof(bytes, keys)` | Verify serialized proof |
