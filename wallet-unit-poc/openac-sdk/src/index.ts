@@ -76,8 +76,16 @@ export class OpenAC {
     );
   }
 
-  async loadMultiKeysFromUrl(baseUrl: string, vcSize: VcSize): Promise<KeySet> {
-    const keys = await this.bridge.loadMultiKeys(baseUrl, vcSize);
+  async loadMultiKeysFromUrl(
+    baseUrl: string,
+    vcSize: VcSize,
+    credentialCount = 2,
+  ): Promise<KeySet> {
+    const keys = await this.bridge.loadMultiKeys(
+      baseUrl,
+      vcSize,
+      credentialCount,
+    );
     return createKeySet(
       keys.preparePk,
       keys.prepareVk,
@@ -239,6 +247,7 @@ export type {
   JwtCircuitInputs,
   Prepare2VcCircuitInputs,
   ShowCircuitInputs,
+  MultiCredentialCircuitKind,
   CircuitArtifacts,
   ErrorCode,
   PrecomputeRequest,
@@ -256,6 +265,12 @@ export type {
   SerializedPrecomputedCredentialJSON,
   SerializedPrecomputedMultiCredentialJSON,
 } from "./types.js";
+
+export {
+  SUPPORTED_MULTI_CREDENTIAL_COUNTS,
+  getMultiCredentialCircuitProfile,
+  multiCredentialKeyFilenames,
+} from "./multi-circuit.js";
 
 export {
   base64urlToBase64,

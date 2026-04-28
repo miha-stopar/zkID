@@ -306,6 +306,8 @@ export interface ClaimNamespaceEntry {
   claimName: string;
 }
 
+export type MultiCredentialCircuitKind = `multi-vc-${number}`;
+
 export interface PrecomputedCredential {
   prepareProof: Uint8Array;
   prepareInstance: Uint8Array;
@@ -320,19 +322,20 @@ export interface PrecomputedCredential {
 }
 
 export interface PrecomputeMultiRequest {
-  credentials: [MultiCredentialInput, MultiCredentialInput];
+  credentials: MultiCredentialInput[];
   keys: KeySet;
+  credentialCount?: number;
   jwtParams?: JwtCircuitParams;
 }
 
 export interface PrecomputedMultiCredential {
-  kind: "multi-vc-2";
+  kind: MultiCredentialCircuitKind;
   prepareProof: Uint8Array;
   prepareInstance: Uint8Array;
   prepareWitness: Uint8Array;
   credentials: SerializedCredential[];
   deviceKey: EcdsaPublicKey;
-  credentialCount: 2;
+  credentialCount: number;
   claimsPerCredential: number;
   normalizedClaimValues: bigint[];
   claimNamespace: ClaimNamespaceEntry[];
@@ -362,13 +365,13 @@ export interface SerializedPrecomputedCredentialJSON {
 
 export interface SerializedPrecomputedMultiCredentialJSON {
   version: string;
-  kind: "multi-vc-2";
+  kind: MultiCredentialCircuitKind;
   prepareProof: string;
   prepareInstance: string;
   prepareWitness: string;
   credentials: SerializedCredential[];
   deviceKey: EcdsaPublicKey;
-  credentialCount: 2;
+  credentialCount: number;
   claimsPerCredential: number;
   normalizedClaimValues: string[];
   claimNamespace: ClaimNamespaceEntry[];

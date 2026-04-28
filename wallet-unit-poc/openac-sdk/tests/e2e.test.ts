@@ -13,6 +13,9 @@ import {
   buildShowCircuitInputs,
   signDeviceNonce,
   base64urlToBigInt,
+  getMultiCredentialCircuitProfile,
+  multiCredentialKeyFilenames,
+  SUPPORTED_MULTI_CREDENTIAL_COUNTS,
   DEFAULT_JWT_PARAMS,
   DEFAULT_SHOW_PARAMS,
   DEFAULT_SHOW_2VC_PARAMS,
@@ -239,6 +242,32 @@ describe("Credential Parsing via SDK", () => {
 });
 
 describe("Input Builders via SDK", () => {
+  it("exposes the supported multi-credential circuit profile", () => {
+    expect(SUPPORTED_MULTI_CREDENTIAL_COUNTS).toEqual([2]);
+
+    const profile = getMultiCredentialCircuitProfile(2);
+
+    expect(profile.kind).toBe("multi-vc-2");
+    expect(profile.credentialCount).toBe(2);
+    expect(profile.prepareCliName).toBe("prepare-2vc");
+    expect(profile.showCliName).toBe("show-2vc");
+    expect(profile.defaultShowParams.nClaims).toBe(
+      DEFAULT_SHOW_PARAMS.nClaims * 2,
+    );
+    expect(multiCredentialKeyFilenames(2, "1k")).toEqual([
+      "1k_prepare_2vc_proving.key",
+      "1k_prepare_2vc_verifying.key",
+      "1k_show_2vc_proving.key",
+      "1k_show_2vc_verifying.key",
+    ]);
+  });
+
+  it("rejects unsupported multi-credential circuit counts", () => {
+    expect(() => getMultiCredentialCircuitProfile(3)).toThrow(
+      "Unsupported multi-credential count 3",
+    );
+  });
+
   it("buildShowCircuitInputs creates valid circuit inputs", () => {
     // Derive the correct public key from the device private key
     const deviceKey = DEVICE_PUBLIC_KEY;

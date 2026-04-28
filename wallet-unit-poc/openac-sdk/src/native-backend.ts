@@ -8,6 +8,7 @@ import { join, dirname } from "path";
 import { existsSync, readdirSync } from "fs";
 import { promisify } from "util";
 import { SetupError, ProofError } from "./errors.js";
+import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
 import type { KeySet, VerifyingKeys, SerializedKeySet } from "./types.js";
 
 export interface NativeVerificationResult {
@@ -130,13 +131,29 @@ export class NativeBackend {
   }
 
   async setupPrepare2Vc(inputPath?: string): Promise<void> {
-    const args = ["prepare-2vc", "setup"];
+    await this.setupPrepareMulti(2, inputPath);
+  }
+
+  async setupShow2Vc(inputPath?: string): Promise<void> {
+    await this.setupShowMulti(2, inputPath);
+  }
+
+  async setupPrepareMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const args = [profile.prepareCliName, "setup"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 1_800_000);
   }
 
-  async setupShow2Vc(inputPath?: string): Promise<void> {
-    const args = ["show-2vc", "setup"];
+  async setupShowMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const args = [profile.showCliName, "setup"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 600_000);
   }
@@ -159,13 +176,29 @@ export class NativeBackend {
   }
 
   async provePrepare2Vc(inputPath?: string): Promise<void> {
-    const args = ["prepare-2vc", "prove"];
+    await this.provePrepareMulti(2, inputPath);
+  }
+
+  async proveShow2Vc(inputPath?: string): Promise<void> {
+    await this.proveShowMulti(2, inputPath);
+  }
+
+  async provePrepareMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const args = [profile.prepareCliName, "prove"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 600_000);
   }
 
-  async proveShow2Vc(inputPath?: string): Promise<void> {
-    const args = ["show-2vc", "prove"];
+  async proveShowMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const args = [profile.showCliName, "prove"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 120_000);
   }
@@ -183,11 +216,21 @@ export class NativeBackend {
   }
 
   async reblindPrepare2Vc(): Promise<void> {
-    await this.run(["prepare-2vc", "reblind"], 600_000);
+    await this.reblindPrepareMulti(2);
   }
 
   async reblindShow2Vc(): Promise<void> {
-    await this.run(["show-2vc", "reblind"], 120_000);
+    await this.reblindShowMulti(2);
+  }
+
+  async reblindPrepareMulti(credentialCount = 2): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    await this.run([profile.prepareCliName, "reblind"], 600_000);
+  }
+
+  async reblindShowMulti(credentialCount = 2): Promise<void> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    await this.run([profile.showCliName, "reblind"], 120_000);
   }
 
   async verifyPrepare(): Promise<NativeVerificationResult> {
@@ -209,7 +252,18 @@ export class NativeBackend {
   }
 
   async verifyPrepare2Vc(): Promise<NativeVerificationResult> {
-    const { stdout, stderr } = await this.run(["prepare-2vc", "verify"]);
+    return this.verifyPrepareMulti(2);
+  }
+
+  async verifyShow2Vc(): Promise<NativeVerificationResult> {
+    return this.verifyShowMulti(2);
+  }
+
+  async verifyPrepareMulti(
+    credentialCount = 2,
+  ): Promise<NativeVerificationResult> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const { stdout, stderr } = await this.run([profile.prepareCliName, "verify"]);
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -217,8 +271,11 @@ export class NativeBackend {
     };
   }
 
-  async verifyShow2Vc(): Promise<NativeVerificationResult> {
-    const { stdout, stderr } = await this.run(["show-2vc", "verify"]);
+  async verifyShowMulti(
+    credentialCount = 2,
+  ): Promise<NativeVerificationResult> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const { stdout, stderr } = await this.run([profile.showCliName, "verify"]);
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -242,11 +299,19 @@ export class NativeBackend {
   }
 
   async proveAll2Vc(prepareInputPath?: string, showInputPath?: string): Promise<void> {
+    await this.proveAllMulti(2, prepareInputPath, showInputPath);
+  }
+
+  async proveAllMulti(
+    credentialCount = 2,
+    prepareInputPath?: string,
+    showInputPath?: string,
+  ): Promise<void> {
     await this.generateSharedBlinds();
-    await this.provePrepare2Vc(prepareInputPath);
-    await this.reblindPrepare2Vc();
-    await this.proveShow2Vc(showInputPath);
-    await this.reblindShow2Vc();
+    await this.provePrepareMulti(credentialCount, prepareInputPath);
+    await this.reblindPrepareMulti(credentialCount);
+    await this.proveShowMulti(credentialCount, showInputPath);
+    await this.reblindShowMulti(credentialCount);
   }
 
   async loadArtifact(filename: string): Promise<Uint8Array> {
@@ -296,12 +361,13 @@ export class NativeBackend {
     };
   }
 
-  async loadMultiKeys(): Promise<KeySet> {
+  async loadMultiKeys(credentialCount = 2): Promise<KeySet> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
     const [ppk, pvk, spk, svk] = await Promise.all([
-      this.loadArtifact("prepare_2vc_proving.key"),
-      this.loadArtifact("prepare_2vc_verifying.key"),
-      this.loadArtifact("show_2vc_proving.key"),
-      this.loadArtifact("show_2vc_verifying.key"),
+      this.loadArtifact(`${profile.prepareCircuitStem}_proving.key`),
+      this.loadArtifact(`${profile.prepareCircuitStem}_verifying.key`),
+      this.loadArtifact(`${profile.showCircuitStem}_proving.key`),
+      this.loadArtifact(`${profile.showCircuitStem}_verifying.key`),
     ]);
 
     return {
@@ -348,7 +414,7 @@ export class NativeBackend {
     };
   }
 
-  async loadMultiProofs(): Promise<{
+  async loadMultiProofs(credentialCount = 2): Promise<{
     prepareProof: Uint8Array;
     showProof: Uint8Array;
     prepareInstance: Uint8Array;
@@ -357,13 +423,14 @@ export class NativeBackend {
     showWitness: Uint8Array;
     sharedBlinds: Uint8Array;
   }> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
     const [pp, sp, pi, si, pw, sw, sb] = await Promise.all([
-      this.loadArtifact("prepare_2vc_proof.bin"),
-      this.loadArtifact("show_2vc_proof.bin"),
-      this.loadArtifact("prepare_2vc_instance.bin"),
-      this.loadArtifact("show_2vc_instance.bin"),
-      this.loadArtifact("prepare_2vc_witness.bin"),
-      this.loadArtifact("show_2vc_witness.bin"),
+      this.loadArtifact(`${profile.prepareCircuitStem}_proof.bin`),
+      this.loadArtifact(`${profile.showCircuitStem}_proof.bin`),
+      this.loadArtifact(`${profile.prepareCircuitStem}_instance.bin`),
+      this.loadArtifact(`${profile.showCircuitStem}_instance.bin`),
+      this.loadArtifact(`${profile.prepareCircuitStem}_witness.bin`),
+      this.loadArtifact(`${profile.showCircuitStem}_witness.bin`),
       this.loadArtifact("shared_blinds.bin"),
     ]);
 
@@ -394,9 +461,14 @@ export class NativeBackend {
   }
 
   get multiKeysExist(): boolean {
+    return this.hasMultiKeys();
+  }
+
+  hasMultiKeys(credentialCount = 2): boolean {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
     return (
-      this.artifactExists("prepare_2vc_proving.key") &&
-      this.artifactExists("show_2vc_proving.key")
+      this.artifactExists(`${profile.prepareCircuitStem}_proving.key`) &&
+      this.artifactExists(`${profile.showCircuitStem}_proving.key`)
     );
   }
 
@@ -408,9 +480,14 @@ export class NativeBackend {
   }
 
   get multiProofsExist(): boolean {
+    return this.hasMultiProofs();
+  }
+
+  hasMultiProofs(credentialCount = 2): boolean {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
     return (
-      this.artifactExists("prepare_2vc_proof.bin") &&
-      this.artifactExists("show_2vc_proof.bin")
+      this.artifactExists(`${profile.prepareCircuitStem}_proof.bin`) &&
+      this.artifactExists(`${profile.showCircuitStem}_proof.bin`)
     );
   }
 }

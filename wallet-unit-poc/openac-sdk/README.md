@@ -63,13 +63,13 @@ result.expressionResult; // true (predicate passed)
 result.deviceKey;        // { x: '0x...', y: '0x...' }
 ```
 
-### Two Credentials
+### Multiple Credentials
 
 ```typescript
 import { OpenAC, LogicToken, PredicateOp } from "openac-sdk";
 
 const openac = await OpenAC.init({ assetsDir: "./assets" });
-const keys = await openac.loadMultiKeysFromUrl("https://cdn.example/keys", "1k");
+const keys = await openac.loadMultiKeysFromUrl("https://cdn.example/keys", "1k", 2);
 
 const precomputed = await openac.precomputeMulti({
   credentials: [
@@ -77,6 +77,7 @@ const precomputed = await openac.precomputeMulti({
     { jwt: membershipCredential, disclosures: membershipDisclosures, issuerPublicKey: membershipIssuer },
   ],
   keys,
+  credentialCount: 2,
 });
 
 const proof = await openac.presentMulti({
@@ -98,7 +99,7 @@ const proof = await openac.presentMulti({
 });
 ```
 
-`precomputeMulti` accepts exactly two SD-JWT credentials for the V1 circuit. Both credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
+`precomputeMulti` uses a circuit profile selected by `credentialCount` (or by `credentials.length` when omitted). The current SDK ships the V1 `multi-vc-2` profile; additional counts require generated Circom/WASM artifacts and Spartan keys for that fixed count. All credentials must be bound to the same `cnf.jwk` device key. The Show circuit sees one flattened claim namespace: VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1.
 
 ### One-Shot (no precompute/present split)
 
@@ -143,12 +144,12 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 |--------|-------------|
 | `OpenAC.init(config?)` | Load WASM prover |
 | `openac.loadKeysFromUrl(url, size)` | Fetch keys (`'1k'`/`'2k'`/`'4k'`/`'8k'`) |
-| `openac.loadMultiKeysFromUrl(url, size)` | Fetch 2VC Prepare/Show keys |
+| `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch multi-credential Prepare/Show keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
 | `openac.precompute(req)` | Prove JWT validity (cache this) |
 | `openac.present(req)` | Prove predicates + device key |
-| `openac.precomputeMulti(req)` | Prove two JWTs and cache flattened claims |
-| `openac.presentMulti(req)` | Prove predicates over both credentials |
+| `openac.precomputeMulti(req)` | Prove a supported multi-credential circuit and cache flattened claims |
+| `openac.presentMulti(req)` | Prove predicates over flattened multi-credential claims |
 | `openac.verify(proof, keys)` | Verify proof |
 | `openac.createProof(req)` | One-shot prove |
 | `openac.verifyProof(bytes, keys)` | Verify serialized proof |

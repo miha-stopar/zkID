@@ -9,6 +9,10 @@
 // NOTE: Keys are generated offline via native CLI, not in browser.
 
 import { WasmError } from "./errors.js";
+import {
+  getMultiCredentialCircuitProfile,
+  multiCredentialKeyFilenames,
+} from "./multi-circuit.js";
 
 export type VcSize = "1k" | "2k" | "4k" | "8k";
 
@@ -38,6 +42,7 @@ interface WasmSingleVerifyResult {
 }
 
 interface OpenACWasmModule {
+  [exportName: string]: unknown;
   init(): void;
   precompute_from_witness(
     pk: Uint8Array,
@@ -74,6 +79,11 @@ interface OpenACWasmModule {
   verify_single(proof: Uint8Array, vk: Uint8Array): WasmSingleVerifyResult;
   compare_comm_w_shared(instance1: Uint8Array, instance2: Uint8Array): boolean;
 }
+
+type WasmPrecomputeFn = (
+  pk: Uint8Array,
+  witnessWtns: Uint8Array,
+) => WasmPrecomputeResult;
 
 export interface SetupKeys {
   preparePk: Uint8Array;
@@ -192,15 +202,12 @@ export class WasmBridge {
     return { preparePk, prepareVk, showPk, showVk };
   }
 
-  async loadMultiKeys(baseUrl: string, vcSize: VcSize): Promise<SetupKeys> {
-    const prefix = `${vcSize}_`;
-    const keyFiles = [
-      `${prefix}prepare_2vc_proving.key`,
-      `${prefix}prepare_2vc_verifying.key`,
-      `${prefix}show_2vc_proving.key`,
-      `${prefix}show_2vc_verifying.key`,
-    ];
-
+  async loadMultiKeys(
+    baseUrl: string,
+    vcSize: VcSize,
+    credentialCount = 2,
+  ): Promise<SetupKeys> {
+    const keyFiles = multiCredentialKeyFilenames(credentialCount, vcSize);
     const fetchKey = async (filename: string): Promise<Uint8Array> => {
       const url = `${baseUrl}/${filename}`;
       const response = await fetch(url);
@@ -255,24 +262,60 @@ export class WasmBridge {
     preparePk: Uint8Array,
     witnessWtns: Uint8Array,
   ): Promise<PrecomputeState> {
-    const wasm = this.getWasm();
-    const result = wasm.precompute_prepare_2vc_from_witness(
+    return this.precomputePrepareMultiFromWitness(2, preparePk, witnessWtns);
+  }
+
+  async precomputePrepareMultiFromWitness(
+    credentialCount: number,
+    preparePk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    return this.precomputeWithWasmExport(
+      profile.prepareWasmExport,
       preparePk,
       witnessWtns,
     );
-    return {
-      proof: new Uint8Array(result.proof),
-      instance: new Uint8Array(result.instance),
-      witness: new Uint8Array(result.witness),
-    };
   }
 
   async precomputeShow2VcFromWitness(
     showPk: Uint8Array,
     witnessWtns: Uint8Array,
   ): Promise<PrecomputeState> {
+    return this.precomputeShowMultiFromWitness(2, showPk, witnessWtns);
+  }
+
+  async precomputeShowMultiFromWitness(
+    credentialCount: number,
+    showPk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    return this.precomputeWithWasmExport(
+      profile.showWasmExport,
+      showPk,
+      witnessWtns,
+    );
+  }
+
+  private precomputeWithWasmExport(
+    exportName: string,
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): PrecomputeState {
     const wasm = this.getWasm();
-    const result = wasm.precompute_show_2vc_from_witness(showPk, witnessWtns);
+    const precompute = wasm[exportName];
+    if (typeof precompute !== "function") {
+      throw new WasmError(
+        "WASM_LOAD_FAILED",
+        `WASM module does not export ${exportName}`,
+      );
+    }
+    const result = (precompute as WasmPrecomputeFn).call(
+      wasm,
+      pk,
+      witnessWtns,
+    );
     return {
       proof: new Uint8Array(result.proof),
       instance: new Uint8Array(result.instance),

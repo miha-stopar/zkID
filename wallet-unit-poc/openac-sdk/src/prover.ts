@@ -3,22 +3,18 @@
 import { WasmBridge } from "./wasm-bridge.js";
 import { WitnessCalculator } from "./witness-calculator.js";
 import { Credential } from "./credential.js";
-import {
-  buildJwtCircuitInputs,
-  buildPrepare2VcCircuitInputs,
-} from "./inputs/jwt-input-builder.js";
+import { buildJwtCircuitInputs } from "./inputs/jwt-input-builder.js";
 import {
   buildShowCircuitInputs,
   signDeviceNonce,
 } from "./inputs/show-input-builder.js";
+import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
 import { circuitInputsToJson, base64Encode } from "./utils.js";
 import { InputError, ProofError } from "./errors.js";
 import { base64Decode } from "./utils.js";
 import {
   DEFAULT_JWT_PARAMS,
-  DEFAULT_JWT_1K_PARAMS,
   DEFAULT_SHOW_PARAMS,
-  DEFAULT_SHOW_2VC_PARAMS,
 } from "./types.js";
 import type {
   ProofRequest,
@@ -42,6 +38,7 @@ import type {
   EcdsaPublicKey,
   MultiCredentialInput,
   ClaimNamespaceEntry,
+  MultiCredentialCircuitKind,
 } from "./types.js";
 
 const SDK_VERSION = "0.1.0";
@@ -153,64 +150,65 @@ export class Prover {
   ): Promise<PrecomputedMultiCredential> {
     const startTime = performance.now();
     const timing: Partial<PrecomputeTiming> = {};
-    const jwtParams: JwtCircuitParams = request.jwtParams ?? DEFAULT_JWT_1K_PARAMS;
-    if (request.credentials.length !== 2) {
+    const credentialCount = request.credentialCount ?? request.credentials.length;
+    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const jwtParams: JwtCircuitParams = request.jwtParams ?? profile.defaultJwtParams;
+    if (request.credentials.length !== profile.credentialCount) {
       throw new InputError(
         "PARAMS_EXCEEDED",
-        "precomputeMulti currently requires exactly two credentials",
+        `precomputeMulti for ${profile.kind} requires exactly ${profile.credentialCount} credentials`,
       );
     }
 
     let t1 = performance.now();
-    const credential0 = Credential.parse(
-      request.credentials[0].jwt,
-      request.credentials[0].disclosures,
-    );
-    const credential1 = Credential.parse(
-      request.credentials[1].jwt,
-      request.credentials[1].disclosures,
+    const credentials = request.credentials.map((input) =>
+      Credential.parse(input.jwt, input.disclosures),
     );
     timing.parseCredentialMs = performance.now() - t1;
 
-    const deviceKey0 = this.requireDeviceKey(credential0);
-    const deviceKey1 = this.requireDeviceKey(credential1);
-    this.assertSameDeviceKey(deviceKey0, deviceKey1);
+    const deviceKey = this.requireDeviceKey(credentials[0]!);
+    for (const credential of credentials.slice(1)) {
+      this.assertSameDeviceKey(deviceKey, this.requireDeviceKey(credential));
+    }
 
     t1 = performance.now();
-    const jwtInputs0 = this.buildJwtInputsForMultiCredential(
-      credential0,
-      request.credentials[0],
-      jwtParams,
+    const jwtInputs = credentials.map((credential, index) =>
+      this.buildJwtInputsForMultiCredential(
+        credential,
+        request.credentials[index]!,
+        jwtParams,
+      ),
     );
-    const jwtInputs1 = this.buildJwtInputsForMultiCredential(
-      credential1,
-      request.credentials[1],
-      jwtParams,
-    );
-    const prepareInputs = buildPrepare2VcCircuitInputs(jwtInputs0, jwtInputs1);
+    const prepareInputs = profile.buildPrepareInputs(jwtInputs);
     const prepareInputsJson = circuitInputsToJson(prepareInputs);
     timing.buildInputsMs = performance.now() - t1;
 
     t1 = performance.now();
-    const prepareWitnessBytes =
-      await this.generatePrepare2VcWitness(prepareInputsJson);
+    const prepareWitnessBytes = await this.generatePrepareMultiWitness(
+      profile.credentialCount,
+      prepareInputsJson,
+    );
     timing.prepareWitnessMs = performance.now() - t1;
 
     t1 = performance.now();
-    const prepareResult = await this.bridge.precomputePrepare2VcFromWitness(
+    const prepareResult = await this.bridge.precomputePrepareMultiFromWitness(
+      profile.credentialCount,
       request.keys.prepareProvingKey,
       prepareWitnessBytes,
     );
     timing.prepareProveMs = performance.now() - t1;
 
-    const prepareWitness = await this.calculatePrepare2VcWitness(prepareInputsJson);
+    const prepareWitness = await this.calculatePrepareMultiWitness(
+      profile.credentialCount,
+      prepareInputsJson,
+    );
     const claimsPerCredential = jwtParams.maxMatches - 2;
     const normalizedClaimValues = prepareWitness.slice(
       1,
-      1 + claimsPerCredential * 2,
+      1 + claimsPerCredential * profile.credentialCount,
     );
     const claimNamespace = this.buildClaimNamespace(
-      [credential0, credential1],
+      credentials,
       claimsPerCredential,
     );
 
@@ -220,8 +218,9 @@ export class Prover {
       prepareResult.proof,
       prepareResult.instance,
       prepareResult.witness,
-      [credential0, credential1],
-      deviceKey0,
+      credentials,
+      profile.kind,
+      deviceKey,
       claimsPerCredential,
       normalizedClaimValues,
       claimNamespace,
@@ -299,7 +298,8 @@ export class Prover {
     const timing: Partial<PresentationTiming> = {};
 
     const { precomputed, verifierNonce, devicePrivateKey, keys } = request;
-    const showParams = request.showParams ?? DEFAULT_SHOW_2VC_PARAMS;
+    const profile = getMultiCredentialCircuitProfile(precomputed.credentialCount);
+    const showParams = request.showParams ?? profile.defaultShowParams;
     if (showParams.nClaims !== precomputed.normalizedClaimValues.length) {
       throw new InputError(
         "PARAMS_EXCEEDED",
@@ -332,11 +332,15 @@ export class Prover {
     const showInputsJson = circuitInputsToJson(showInputs);
 
     let t1 = performance.now();
-    const showWitnessBytes = await this.generateShow2VcWitness(showInputsJson);
+    const showWitnessBytes = await this.generateShowMultiWitness(
+      profile.credentialCount,
+      showInputsJson,
+    );
     timing.showWitnessMs = performance.now() - t1;
 
     t1 = performance.now();
-    const showResult = await this.bridge.precomputeShow2VcFromWitness(
+    const showResult = await this.bridge.precomputeShowMultiFromWitness(
+      profile.credentialCount,
       keys.showProvingKey,
       showWitnessBytes,
     );
@@ -354,7 +358,10 @@ export class Prover {
     timing.presentMs = performance.now() - t1;
     timing.totalMs = performance.now() - startTime;
 
-    const showWitness = await this.calculateShow2VcWitness(showInputsJson);
+    const showWitness = await this.calculateShowMultiWitness(
+      profile.credentialCount,
+      showInputsJson,
+    );
     const publicValues: ProofPublicValues = {
       expressionResult: showWitness[1] === 1n,
       deviceKeyX: showInputs.deviceKeyX.toString(),
@@ -559,7 +566,8 @@ export class Prover {
     return await this.witnessCalculator.calculateShowWitnessWtns(inputs);
   }
 
-  private async generatePrepare2VcWitness(
+  private async generatePrepareMultiWitness(
+    credentialCount: number,
     inputsJson: string,
   ): Promise<Uint8Array> {
     if (!this.witnessCalculator) {
@@ -569,10 +577,16 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculatePrepare2VcWitnessWtns(inputs);
+    return await this.witnessCalculator.calculatePrepareMultiWitnessWtns(
+      credentialCount,
+      inputs,
+    );
   }
 
-  private async generateShow2VcWitness(inputsJson: string): Promise<Uint8Array> {
+  private async generateShowMultiWitness(
+    credentialCount: number,
+    inputsJson: string,
+  ): Promise<Uint8Array> {
     if (!this.witnessCalculator) {
       throw new ProofError(
         "WITNESS_GENERATION_FAILED",
@@ -580,7 +594,10 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculateShow2VcWitnessWtns(inputs);
+    return await this.witnessCalculator.calculateShowMultiWitnessWtns(
+      credentialCount,
+      inputs,
+    );
   }
 
   private async calculateJwtWitness(inputsJson: string): Promise<bigint[]> {
@@ -605,7 +622,10 @@ export class Prover {
     return await this.witnessCalculator.calculateShowWitness(inputs);
   }
 
-  private async calculatePrepare2VcWitness(inputsJson: string): Promise<bigint[]> {
+  private async calculatePrepareMultiWitness(
+    credentialCount: number,
+    inputsJson: string,
+  ): Promise<bigint[]> {
     if (!this.witnessCalculator) {
       throw new ProofError(
         "WITNESS_GENERATION_FAILED",
@@ -613,10 +633,16 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculatePrepare2VcWitness(inputs);
+    return await this.witnessCalculator.calculatePrepareMultiWitness(
+      credentialCount,
+      inputs,
+    );
   }
 
-  private async calculateShow2VcWitness(inputsJson: string): Promise<bigint[]> {
+  private async calculateShowMultiWitness(
+    credentialCount: number,
+    inputsJson: string,
+  ): Promise<bigint[]> {
     if (!this.witnessCalculator) {
       throw new ProofError(
         "WITNESS_GENERATION_FAILED",
@@ -624,7 +650,10 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculateShow2VcWitness(inputs);
+    return await this.witnessCalculator.calculateShowMultiWitness(
+      credentialCount,
+      inputs,
+    );
   }
 
   private parseJsonToBigInt(json: string): Record<string, unknown> {
@@ -695,7 +724,7 @@ export class Prover {
   }
 
   private buildClaimNamespace(
-    credentials: [Credential, Credential],
+    credentials: Credential[],
     claimsPerCredential: number,
   ): ClaimNamespaceEntry[] {
     const entries: ClaimNamespaceEntry[] = [];
@@ -769,7 +798,8 @@ export class Prover {
     prepareProof: Uint8Array,
     prepareInstance: Uint8Array,
     prepareWitness: Uint8Array,
-    credentials: [Credential, Credential],
+    credentials: Credential[],
+    kind: MultiCredentialCircuitKind,
     deviceKey: EcdsaPublicKey,
     claimsPerCredential: number,
     normalizedClaimValues: bigint[],
@@ -777,7 +807,7 @@ export class Prover {
     timing: PrecomputeTiming,
   ): PrecomputedMultiCredential {
     const result: PrecomputedMultiCredential = {
-      kind: "multi-vc-2",
+      kind,
       prepareProof,
       prepareInstance,
       prepareWitness,
@@ -787,7 +817,7 @@ export class Prover {
         deviceBindingKey: deviceKey,
       })),
       deviceKey,
-      credentialCount: 2,
+      credentialCount: credentials.length,
       claimsPerCredential,
       normalizedClaimValues,
       claimNamespace,
@@ -995,13 +1025,13 @@ export function deserializePrecomputedMulti(
     BigInt(value),
   );
   const result: PrecomputedMultiCredential = {
-    kind: "multi-vc-2",
+    kind: json.kind,
     prepareProof: base64Decode(json.prepareProof),
     prepareInstance: base64Decode(json.prepareInstance),
     prepareWitness: base64Decode(json.prepareWitness),
     credentials: json.credentials,
     deviceKey: json.deviceKey,
-    credentialCount: 2,
+    credentialCount: json.credentialCount,
     claimsPerCredential: json.claimsPerCredential,
     normalizedClaimValues,
     claimNamespace: json.claimNamespace,
