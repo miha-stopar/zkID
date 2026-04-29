@@ -193,57 +193,33 @@ export class Verifier {
       preparePublicValues.push(result.publicValues);
     }
 
-    let linkResult;
+    let linkedResult;
     try {
-      linkResult = await this.bridge.verifySingle(
+      linkedResult = await this.bridge.verify(
         proof.linkProof,
         keys.linkVerifyingKey,
-      );
-    } catch (error) {
-      return this.invalidResult(
-        startTime,
-        `Link proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    if (!linkResult.valid) {
-      return this.invalidResult(startTime, "Link proof verification failed");
-    }
-
-    let showResult;
-    try {
-      showResult = await this.bridge.verifySingle(
+        proof.linkInstance,
         proof.showProof,
         keys.showVerifyingKey,
-      );
-    } catch (error) {
-      return this.invalidResult(
-        startTime,
-        `Show proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    if (!showResult.valid) {
-      return this.invalidResult(startTime, "Show proof verification failed");
-    }
-
-    let sharedCommitmentsMatch;
-    try {
-      sharedCommitmentsMatch = this.bridge.compareCommWShared(
-        proof.linkInstance,
         proof.showInstance,
       );
     } catch (error) {
       return this.invalidResult(
         startTime,
-        `Shared commitment comparison failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Link/Show proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!linkedResult.valid) {
+      return this.invalidResult(
+        startTime,
+        linkedResult.error
+          ? this.formatLinkShowVerificationError(linkedResult.error)
+          : "Link/Show proof verification failed",
       );
     }
 
-    if (!sharedCommitmentsMatch) {
-      return this.invalidResult(
-        startTime,
-        "Shared commitment mismatch: link and show proofs do not share the same private claims",
-      );
-    }
+    const linkPublicValues = linkedResult.preparePublicValues;
+    const showPublicValues = linkedResult.showPublicValues;
 
     let expectedPublic: string[];
     try {
@@ -257,7 +233,7 @@ export class Verifier {
         error instanceof Error ? error.message : String(error),
       );
     }
-    const actualPublic = linkResult.publicValues;
+    const actualPublic = linkPublicValues;
     if (actualPublic.length !== expectedPublic.length) {
       return this.invalidResult(
         startTime,
@@ -274,7 +250,7 @@ export class Verifier {
       }
     }
 
-    if (showResult.publicValues.length < 3) {
+    if (showPublicValues.length < 3) {
       return this.invalidResult(
         startTime,
         "Show proof public value count mismatch",
@@ -282,9 +258,9 @@ export class Verifier {
     }
 
     if (
-      normalizeScalar(showResult.publicValues[1] ?? "") !==
+      normalizeScalar(showPublicValues[1] ?? "") !==
         normalizeScalar(expectedPublic[1] ?? "") ||
-      normalizeScalar(showResult.publicValues[2] ?? "") !==
+      normalizeScalar(showPublicValues[2] ?? "") !==
         normalizeScalar(expectedPublic[2] ?? "")
     ) {
       return this.invalidResult(
@@ -295,10 +271,10 @@ export class Verifier {
 
     return {
       valid: true,
-      expressionResult: parseScalarToBool(showResult.publicValues[0] ?? ""),
+      expressionResult: parseScalarToBool(showPublicValues[0] ?? ""),
       deviceKey: {
-        x: showResult.publicValues[1] ?? "",
-        y: showResult.publicValues[2] ?? "",
+        x: showPublicValues[1] ?? "",
+        y: showPublicValues[2] ?? "",
       },
       verifyMs: performance.now() - startTime,
     };
@@ -312,6 +288,12 @@ export class Verifier {
       verifyMs: performance.now() - startTime,
       error,
     };
+  }
+
+  private formatLinkShowVerificationError(error: string): string {
+    return error
+      .replace("prepare and show proofs", "link and show proofs")
+      .replace("Prepare proof", "Link proof");
   }
 
   private expectedLinkPublicValues(

@@ -90,15 +90,34 @@ function makeBridge(
   ]),
   sharedCommitmentMatches = true,
 ): WasmBridge {
+  const publicValuesFor = (proof: Uint8Array): string[] => {
+    const proofId = proof[0];
+    if (proofId === undefined || !publicValuesByProofByte.has(proofId)) {
+      throw new Error(`unknown proof ${proofId ?? "empty"}`);
+    }
+    return publicValuesByProofByte.get(proofId)!;
+  };
+
   return {
     verifySingle: vi.fn(async (proof: Uint8Array) => {
-      const proofId = proof[0];
-      if (proofId === undefined || !publicValuesByProofByte.has(proofId)) {
-        throw new Error(`unknown proof ${proofId ?? "empty"}`);
+      return {
+        valid: true,
+        publicValues: publicValuesFor(proof),
+      };
+    }),
+    verify: vi.fn(async (link: Uint8Array, _linkVk: Uint8Array, _linkInstance: Uint8Array, show: Uint8Array) => {
+      if (!sharedCommitmentMatches) {
+        return {
+          valid: false,
+          preparePublicValues: [],
+          showPublicValues: [],
+          error: "Shared commitment mismatch: prepare and show proofs do not share the same private data",
+        };
       }
       return {
         valid: true,
-        publicValues: publicValuesByProofByte.get(proofId)!,
+        preparePublicValues: publicValuesFor(link),
+        showPublicValues: publicValuesFor(show),
       };
     }),
     compareCommWShared: vi.fn(() => sharedCommitmentMatches),
@@ -115,11 +134,16 @@ describe("Verifier.verifyPreparedMulti", () => {
     expect(result.valid).toBe(true);
     expect(result.expressionResult).toBe(true);
     expect(result.deviceKey).toEqual({ x: "111", y: "222" });
-    expect(bridge.verifySingle).toHaveBeenCalledTimes(5);
-    expect(bridge.compareCommWShared).toHaveBeenCalledWith(
+    expect(bridge.verifySingle).toHaveBeenCalledTimes(3);
+    expect(bridge.verify).toHaveBeenCalledWith(
+      new Uint8Array([20]),
+      keys.linkVerifyingKey,
       new Uint8Array([50]),
+      new Uint8Array([30]),
+      keys.showVerifyingKey,
       new Uint8Array([60]),
     );
+    expect(bridge.compareCommWShared).not.toHaveBeenCalled();
   });
 
   it("rejects a presentation whose Link proof is not tied to the Show proof", async () => {
@@ -129,6 +153,7 @@ describe("Verifier.verifyPreparedMulti", () => {
 
     expect(result.valid).toBe(false);
     expect(result.error).toContain("Shared commitment mismatch");
+    expect(result.error).toContain("link and show proofs");
   });
 
   it("rejects malformed presentation metadata before proof verification", async () => {
