@@ -116,62 +116,135 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
     kid: "key-2",
   });
 
+  const mockData3 = await generateMockData({
+    circuitParams: params,
+    targetPayloadLength,
+    claimFormats: [PredicateFormat.UINT, PredicateFormat.UINT],
+    claims: [
+      { key: "license_active", value: "1" },
+      { key: "risk_score", value: "42" },
+    ],
+    devicePrivateKey: mockData.devicePrivateKey,
+    deviceKey: mockData.deviceKey,
+    kid: "key-3",
+  });
+
+  const mockData4 = await generateMockData({
+    circuitParams: params,
+    targetPayloadLength,
+    claimFormats: [PredicateFormat.STRING_EQ, PredicateFormat.UINT],
+    claims: [
+      { key: "employment", value: "ACTIVE" },
+      { key: "tenure_years", value: "5" },
+    ],
+    devicePrivateKey: mockData.devicePrivateKey,
+    deviceKey: mockData.deviceKey,
+    kid: "key-4",
+  });
+
   const prepare2vcOutputDir = isDefault
     ? path.join(circomDir, "inputs", "prepare_2vc")
     : path.join(circomDir, "inputs", "prepare_2vc", sizeName);
   const show2vcOutputDir = isDefault
     ? path.join(circomDir, "inputs", "show_2vc")
     : path.join(circomDir, "inputs", "show_2vc", sizeName);
+  const show3vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "show_3vc")
+    : path.join(circomDir, "inputs", "show_3vc", sizeName);
+  const show4vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "show_4vc")
+    : path.join(circomDir, "inputs", "show_4vc", sizeName);
   fs.mkdirSync(prepare2vcOutputDir, { recursive: true });
   fs.mkdirSync(show2vcOutputDir, { recursive: true });
+  fs.mkdirSync(show3vcOutputDir, { recursive: true });
+  fs.mkdirSync(show4vcOutputDir, { recursive: true });
 
   const prepare2vcInputs = {
     vc0: mockData.circuitInputs,
     vc1: mockData2.circuitInputs,
   };
 
-  const show2vcParams = {
-    nClaims: showParams.nClaims * 2,
-    maxPredicates: showParams.maxPredicates,
-    maxLogicTokens: showParams.maxLogicTokens,
-    valueBits: showParams.valueBits,
+  const buildMultiShowInputs = (
+    credentialCount: number,
+    flattenedClaims: string[],
+    secondPredicateClaimRef: bigint,
+    secondPredicateRhs: bigint,
+  ) => {
+    const multiShowParams = {
+      nClaims: showParams.nClaims * credentialCount,
+      maxPredicates: showParams.maxPredicates,
+      maxLogicTokens: showParams.maxLogicTokens,
+      valueBits: showParams.valueBits,
+    };
+
+    const inputs = generateShowInputs(
+      multiShowParams,
+      nonce,
+      deviceSignature,
+      mockData.deviceKey,
+      flattenedClaims,
+    );
+
+    // pred0: VC0 roc_birthday <= adult cutoff
+    inputs.predicateLen = 2n;
+    inputs.predicateClaimRefs[0] = 1n;
+    inputs.predicateOps[0] = BigInt(OP_LE);
+    inputs.predicateRhsValues[0] = 1070101n;
+
+    // pred1: a claim from the final credential meets that credential's threshold
+    inputs.predicateClaimRefs[1] = secondPredicateClaimRef;
+    inputs.predicateOps[1] = BigInt(OP_GE);
+    inputs.predicateRhsValues[1] = secondPredicateRhs;
+
+    // pred0 AND pred1
+    inputs.tokenTypes[0] = BigInt(LOGIC_REF);
+    inputs.tokenValues[0] = 0n;
+    inputs.tokenTypes[1] = BigInt(LOGIC_REF);
+    inputs.tokenValues[1] = 1n;
+    inputs.tokenTypes[2] = BigInt(LOGIC_AND);
+    inputs.tokenValues[2] = 0n;
+    inputs.exprLen = 3n;
+
+    return inputs;
   };
 
-  const show2vcInputs = generateShowInputs(
-    show2vcParams,
-    nonce,
-    deviceSignature,
-    mockData.deviceKey,
+  const show2vcInputs = buildMultiShowInputs(
+    2,
     [...mockData.claims, ...mockData2.claims],
+    3n,
+    10000n,
   );
-
-  // pred0: VC0 roc_birthday <= adult cutoff
-  show2vcInputs.predicateLen = 2n;
-  show2vcInputs.predicateClaimRefs[0] = 1n;
-  show2vcInputs.predicateOps[0] = BigInt(OP_LE);
-  show2vcInputs.predicateRhsValues[0] = 1070101n;
-
-  // pred1: VC1 balance >= 10000
-  show2vcInputs.predicateClaimRefs[1] = 3n;
-  show2vcInputs.predicateOps[1] = BigInt(OP_GE);
-  show2vcInputs.predicateRhsValues[1] = 10000n;
-
-  // pred0 AND pred1
-  show2vcInputs.tokenTypes[0] = BigInt(LOGIC_REF);
-  show2vcInputs.tokenValues[0] = 0n;
-  show2vcInputs.tokenTypes[1] = BigInt(LOGIC_REF);
-  show2vcInputs.tokenValues[1] = 1n;
-  show2vcInputs.tokenTypes[2] = BigInt(LOGIC_AND);
-  show2vcInputs.tokenValues[2] = 0n;
-  show2vcInputs.exprLen = 3n;
+  const show3vcInputs = buildMultiShowInputs(
+    3,
+    [...mockData.claims, ...mockData2.claims, ...mockData3.claims],
+    5n,
+    40n,
+  );
+  const show4vcInputs = buildMultiShowInputs(
+    4,
+    [
+      ...mockData.claims,
+      ...mockData2.claims,
+      ...mockData3.claims,
+      ...mockData4.claims,
+    ],
+    7n,
+    3n,
+  );
 
   const prepare2vcOutputPath = path.join(prepare2vcOutputDir, "default.json");
   const show2vcOutputPath = path.join(show2vcOutputDir, "default.json");
+  const show3vcOutputPath = path.join(show3vcOutputDir, "default.json");
+  const show4vcOutputPath = path.join(show4vcOutputDir, "default.json");
   fs.writeFileSync(prepare2vcOutputPath, JSON.stringify(prepare2vcInputs, bigintReplacer, 2));
   fs.writeFileSync(show2vcOutputPath, JSON.stringify(show2vcInputs, bigintReplacer, 2));
+  fs.writeFileSync(show3vcOutputPath, JSON.stringify(show3vcInputs, bigintReplacer, 2));
+  fs.writeFileSync(show4vcOutputPath, JSON.stringify(show4vcInputs, bigintReplacer, 2));
 
   console.log(`  Prepare2VC inputs → ${path.relative(circomDir, prepare2vcOutputPath)}`);
   console.log(`  Show2VC inputs    → ${path.relative(circomDir, show2vcOutputPath)}`);
+  console.log(`  Show3VC inputs    → ${path.relative(circomDir, show3vcOutputPath)}`);
+  console.log(`  Show4VC inputs    → ${path.relative(circomDir, show4vcOutputPath)}`);
 }
 
 async function main(): Promise<void> {
@@ -182,8 +255,8 @@ async function main(): Promise<void> {
 Usage: npx ts-node src/generate-inputs.ts [options]
 
 Options:
-  --size <size>  Generate single-VC and 2VC inputs for a size (default | 1k | 2k | 4k | 8k)
-  --all          Generate single-VC and 2VC inputs for all sizes
+  --size <size>  Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show inputs for a size (default | 1k | 2k | 4k | 8k)
+  --all          Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show inputs for all sizes
   -h, --help     Show this help message
 
 Examples:
