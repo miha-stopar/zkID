@@ -38,7 +38,18 @@ export interface MultiCredentialCircuitProfile {
   buildPrepareInputs(inputs: JwtCircuitInputs[]): MultiPrepareCircuitInputs;
 }
 
+export interface PreparedMultiShowCircuitProfile {
+  credentialCount: number;
+  kind: MultiCredentialCircuitKind;
+  showCircuitStem: string;
+  showCliName: string;
+  showWasmExport: WasmPrecomputeExportName;
+  showWitnessWasm: string;
+  defaultShowParams: ShowCircuitParams;
+}
+
 export const SUPPORTED_MULTI_CREDENTIAL_COUNTS = [2] as const;
+export const SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS = [2, 3, 4] as const;
 
 const TWO_CREDENTIAL_PROFILE: MultiCredentialCircuitProfile = {
   credentialCount: 2,
@@ -52,10 +63,7 @@ const TWO_CREDENTIAL_PROFILE: MultiCredentialCircuitProfile = {
   prepareWitnessWasm: "prepare_2vc.wasm",
   showWitnessWasm: "show_2vc.wasm",
   defaultJwtParams: DEFAULT_JWT_1K_PARAMS,
-  defaultShowParams: {
-    ...DEFAULT_SHOW_PARAMS,
-    nClaims: DEFAULT_SHOW_PARAMS.nClaims * 2,
-  },
+  defaultShowParams: showParamsForCredentialCount(2),
   buildPrepareInputs(inputs: JwtCircuitInputs[]): Prepare2VcCircuitInputs {
     if (inputs.length !== 2) {
       throw unsupportedCountError(inputs.length);
@@ -68,12 +76,37 @@ const PROFILES = new Map<number, MultiCredentialCircuitProfile>([
   [TWO_CREDENTIAL_PROFILE.credentialCount, TWO_CREDENTIAL_PROFILE],
 ]);
 
+const PREPARED_MULTI_SHOW_PROFILES = new Map<number, PreparedMultiShowCircuitProfile>(
+  SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS.map((credentialCount) => [
+    credentialCount,
+    {
+      credentialCount,
+      kind: `multi-vc-${credentialCount}` as MultiCredentialCircuitKind,
+      showCircuitStem: `show_${credentialCount}vc`,
+      showCliName: `show-${credentialCount}vc`,
+      showWasmExport: `precompute_show_${credentialCount}vc_from_witness`,
+      showWitnessWasm: `show_${credentialCount}vc.wasm`,
+      defaultShowParams: showParamsForCredentialCount(credentialCount),
+    },
+  ]),
+);
+
 export function getMultiCredentialCircuitProfile(
   credentialCount: number,
 ): MultiCredentialCircuitProfile {
   const profile = PROFILES.get(credentialCount);
   if (!profile) {
     throw unsupportedCountError(credentialCount);
+  }
+  return profile;
+}
+
+export function getPreparedMultiShowCircuitProfile(
+  credentialCount: number,
+): PreparedMultiShowCircuitProfile {
+  const profile = PREPARED_MULTI_SHOW_PROFILES.get(credentialCount);
+  if (!profile) {
+    throw unsupportedPreparedMultiShowCountError(credentialCount);
   }
   return profile;
 }
@@ -92,9 +125,51 @@ export function multiCredentialKeyFilenames(
   ];
 }
 
+export function preparedMultiKeyFilenames(
+  credentialCount: number,
+  vcSize: VcSize,
+): [string, string, string, string] {
+  const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+  const prefix = `${vcSize}_`;
+  return [
+    `${prefix}prepare_proving.key`,
+    `${prefix}prepare_verifying.key`,
+    `${prefix}${profile.showCircuitStem}_proving.key`,
+    `${prefix}${profile.showCircuitStem}_verifying.key`,
+  ];
+}
+
+export function preparedMultiShowKeyFilenames(
+  credentialCount: number,
+  vcSize: VcSize,
+): [string, string] {
+  const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+  const prefix = `${vcSize}_`;
+  return [
+    `${prefix}${profile.showCircuitStem}_proving.key`,
+    `${prefix}${profile.showCircuitStem}_verifying.key`,
+  ];
+}
+
+function showParamsForCredentialCount(credentialCount: number): ShowCircuitParams {
+  return {
+    ...DEFAULT_SHOW_PARAMS,
+    nClaims: DEFAULT_SHOW_PARAMS.nClaims * credentialCount,
+  };
+}
+
 function unsupportedCountError(credentialCount: number): InputError {
   return new InputError(
     "PARAMS_EXCEEDED",
     `Unsupported multi-credential count ${credentialCount}. Supported counts: ${SUPPORTED_MULTI_CREDENTIAL_COUNTS.join(", ")}`,
+  );
+}
+
+function unsupportedPreparedMultiShowCountError(
+  credentialCount: number,
+): InputError {
+  return new InputError(
+    "PARAMS_EXCEEDED",
+    `Unsupported prepared multi-credential Show count ${credentialCount}. Supported counts: ${SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS.join(", ")}`,
   );
 }

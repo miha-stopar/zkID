@@ -8,7 +8,10 @@ import {
   buildShowCircuitInputs,
   signDeviceNonce,
 } from "./inputs/show-input-builder.js";
-import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
+import {
+  getMultiCredentialCircuitProfile,
+  getPreparedMultiShowCircuitProfile,
+} from "./multi-circuit.js";
 import { circuitInputsToJson, base64Encode } from "./utils.js";
 import { InputError, ProofError } from "./errors.js";
 import { base64Decode } from "./utils.js";
@@ -29,6 +32,8 @@ import type {
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
+  PreparedMultiShowProof,
+  PreparedMultiShowRequest,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
@@ -254,6 +259,95 @@ export class Prover {
     precomputedCredentials: PrecomputedCredential[],
   ): PreparedMultiCredential {
     return bundlePrecomputedCredentials(precomputedCredentials);
+  }
+
+  async precomputePreparedMultiShow(
+    request: PreparedMultiShowRequest,
+  ): Promise<PreparedMultiShowProof> {
+    const startTime = performance.now();
+    const timing: Partial<PresentationTiming> = {};
+
+    const { prepared, verifierNonce, devicePrivateKey, keys } = request;
+    const profile = getPreparedMultiShowCircuitProfile(prepared.credentialCount);
+    if (prepared.kind !== profile.kind) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle kind ${prepared.kind} does not match ${profile.kind}`,
+      );
+    }
+
+    const showParams = request.showParams ?? profile.defaultShowParams;
+    if (showParams.nClaims !== prepared.normalizedClaimValues.length) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `showParams.nClaims (${showParams.nClaims}) must match prepared normalized claim count (${prepared.normalizedClaimValues.length})`,
+      );
+    }
+
+    const suppliedClaimValues = request.showInputOptions?.normalizedClaimValues;
+    if (
+      suppliedClaimValues &&
+      !this.bigintArraysEqual(suppliedClaimValues, prepared.normalizedClaimValues)
+    ) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        "showInputOptions.normalizedClaimValues must match the prepared normalized claims",
+      );
+    }
+
+    const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
+    const showInputs = buildShowCircuitInputs(
+      showParams,
+      verifierNonce,
+      deviceSignature,
+      prepared.deviceKey,
+      {
+        ...request.showInputOptions,
+        normalizedClaimValues: prepared.normalizedClaimValues,
+      },
+    );
+    const showInputsJson = circuitInputsToJson(showInputs);
+
+    let t1 = performance.now();
+    const showWitnessBytes = await this.generateShowMultiWitness(
+      profile.credentialCount,
+      showInputsJson,
+    );
+    timing.showWitnessMs = performance.now() - t1;
+
+    t1 = performance.now();
+    const showResult = await this.bridge.precomputeShowMultiFromWitness(
+      profile.credentialCount,
+      keys.showProvingKey,
+      showWitnessBytes,
+    );
+    timing.showProveMs = performance.now() - t1;
+    timing.totalMs = performance.now() - startTime;
+
+    const showWitness = await this.calculateShowMultiWitness(
+      profile.credentialCount,
+      showInputsJson,
+    );
+    const publicValues: ProofPublicValues = {
+      expressionResult: showWitness[1] === 1n,
+      deviceKeyX: showInputs.deviceKeyX.toString(),
+      deviceKeyY: showInputs.deviceKeyY.toString(),
+      normalizedClaimValues: prepared.normalizedClaimValues,
+    };
+
+    return {
+      kind: profile.kind,
+      credentialCount: profile.credentialCount,
+      showProof: showResult.proof,
+      showInstance: showResult.instance,
+      showWitness: showResult.witness,
+      publicValues,
+      timing: {
+        showWitnessMs: timing.showWitnessMs ?? 0,
+        showProveMs: timing.showProveMs ?? 0,
+        totalMs: timing.totalMs ?? 0,
+      },
+    };
   }
 
   async present(request: PresentRequest): Promise<PresentationProof> {

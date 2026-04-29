@@ -2,7 +2,10 @@ import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { ProofError } from "./errors.js";
-import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
+import {
+  getMultiCredentialCircuitProfile,
+  getPreparedMultiShowCircuitProfile,
+} from "./multi-circuit.js";
 import type { JwtCircuitInputs, Prepare2VcCircuitInputs, ShowCircuitInputs } from "./types.js";
 
 // Circom witness calculators accept any object with string keys
@@ -170,7 +173,7 @@ export class WitnessCalculator {
     const existing = this.showMultiCalculators.get(credentialCount);
     if (existing) return existing;
 
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     const calculator = await this.loadCalculator(
       join(this.assetsDir, profile.showWitnessWasm),
     );

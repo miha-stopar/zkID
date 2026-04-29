@@ -16,8 +16,12 @@ import {
   base64urlToBigInt,
   bundlePrecomputedCredentials,
   deserializePreparedMulti,
+  getPreparedMultiShowCircuitProfile,
   getMultiCredentialCircuitProfile,
   multiCredentialKeyFilenames,
+  preparedMultiKeyFilenames,
+  preparedMultiShowKeyFilenames,
+  SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS,
   SUPPORTED_MULTI_CREDENTIAL_COUNTS,
   DEFAULT_JWT_PARAMS,
   DEFAULT_SHOW_PARAMS,
@@ -266,9 +270,36 @@ describe("Input Builders via SDK", () => {
     ]);
   });
 
+  it("exposes prepared multi-credential Show profiles for 2VC through 4VC", () => {
+    expect(SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS).toEqual([2, 3, 4]);
+
+    const profile = getPreparedMultiShowCircuitProfile(3);
+
+    expect(profile.kind).toBe("multi-vc-3");
+    expect(profile.credentialCount).toBe(3);
+    expect(profile.showCliName).toBe("show-3vc");
+    expect(profile.showWasmExport).toBe("precompute_show_3vc_from_witness");
+    expect(profile.defaultShowParams.nClaims).toBe(
+      DEFAULT_SHOW_PARAMS.nClaims * 3,
+    );
+    expect(preparedMultiShowKeyFilenames(4, "1k")).toEqual([
+      "1k_show_4vc_proving.key",
+      "1k_show_4vc_verifying.key",
+    ]);
+    expect(preparedMultiKeyFilenames(3, "1k")).toEqual([
+      "1k_prepare_proving.key",
+      "1k_prepare_verifying.key",
+      "1k_show_3vc_proving.key",
+      "1k_show_3vc_verifying.key",
+    ]);
+  });
+
   it("rejects unsupported multi-credential circuit counts", () => {
     expect(() => getMultiCredentialCircuitProfile(3)).toThrow(
       "Unsupported multi-credential count 3",
+    );
+    expect(() => getPreparedMultiShowCircuitProfile(5)).toThrow(
+      "Unsupported prepared multi-credential Show count 5",
     );
   });
 

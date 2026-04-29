@@ -8,7 +8,10 @@ import { join, dirname } from "path";
 import { existsSync, readdirSync } from "fs";
 import { promisify } from "util";
 import { SetupError, ProofError } from "./errors.js";
-import { getMultiCredentialCircuitProfile } from "./multi-circuit.js";
+import {
+  getMultiCredentialCircuitProfile,
+  getPreparedMultiShowCircuitProfile,
+} from "./multi-circuit.js";
 import type { KeySet, VerifyingKeys, SerializedKeySet } from "./types.js";
 
 export interface NativeVerificationResult {
@@ -152,7 +155,7 @@ export class NativeBackend {
     credentialCount = 2,
     inputPath?: string,
   ): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     const args = [profile.showCliName, "setup"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 600_000);
@@ -197,7 +200,7 @@ export class NativeBackend {
     credentialCount = 2,
     inputPath?: string,
   ): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     const args = [profile.showCliName, "prove"];
     if (inputPath) args.push("--input", inputPath);
     await this.run(args, 120_000);
@@ -229,7 +232,7 @@ export class NativeBackend {
   }
 
   async reblindShowMulti(credentialCount = 2): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     await this.run([profile.showCliName, "reblind"], 120_000);
   }
 
@@ -274,7 +277,7 @@ export class NativeBackend {
   async verifyShowMulti(
     credentialCount = 2,
   ): Promise<NativeVerificationResult> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     const { stdout, stderr } = await this.run([profile.showCliName, "verify"]);
     const output = stdout + stderr;
     return {

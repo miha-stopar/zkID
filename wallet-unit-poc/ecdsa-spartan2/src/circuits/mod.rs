@@ -2,6 +2,7 @@ pub mod prepare_2vc_circuit;
 pub mod prepare_circuit;
 pub mod show_2vc_circuit;
 pub mod show_circuit;
+pub mod show_multi_vc_circuit;
 
 use bellpepper_core::{num::AllocatedNum, ConstraintSystem, SynthesisError};
 use ff::PrimeField;

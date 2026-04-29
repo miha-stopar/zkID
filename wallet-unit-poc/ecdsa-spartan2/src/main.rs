@@ -31,7 +31,7 @@ use ecdsa_spartan2::{
     prove_circuit, prove_circuit_with_pk, reblind, reblind_with_loaded_data, run_circuit,
     save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
     verify_circuit_with_loaded_data, PathConfig, Prepare2VcCircuit, PrepareCircuit, Show2VcCircuit,
-    ShowCircuit, E,
+    ShowCircuit, ShowMultiVcCircuit, E,
 };
 use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
@@ -496,6 +496,8 @@ enum CircuitKind {
     Show,
     Prepare2Vc,
     Show2Vc,
+    Show3Vc,
+    Show4Vc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -552,6 +554,8 @@ fn main() {
         CircuitKind::Show => execute_show(command.action, command.options),
         CircuitKind::Prepare2Vc => execute_prepare_2vc(command.action, command.options),
         CircuitKind::Show2Vc => execute_show_2vc(command.action, command.options),
+        CircuitKind::Show3Vc => execute_show_multi_vc(3, command.action, command.options),
+        CircuitKind::Show4Vc => execute_show_multi_vc(4, command.action, command.options),
     }
 }
 
@@ -797,6 +801,83 @@ fn execute_show_2vc(action: CircuitAction, options: CommandOptions) {
     }
 }
 
+fn execute_show_multi_vc(credential_count: usize, action: CircuitAction, options: CommandOptions) {
+    let path_config = options.path_config();
+    let circuit_stem = format!("show_{}vc", credential_count);
+
+    match action {
+        CircuitAction::Setup => {
+            info!(size = %path_config.circuit_size, credential_count, "Setting up multi-VC Show");
+            let circuit = ShowMultiVcCircuit::new(
+                credential_count,
+                path_config.clone(),
+                options.input.clone(),
+            );
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.key_path(&format!("{}_verifying.key", circuit_stem)),
+            );
+        }
+        CircuitAction::Run => {
+            let circuit =
+                ShowMultiVcCircuit::new(credential_count, path_config, options.input.clone());
+            info!(credential_count, "Running multi-VC Show circuit");
+            run_circuit(circuit);
+        }
+        CircuitAction::Prove => {
+            let circuit = ShowMultiVcCircuit::new(
+                credential_count,
+                path_config.clone(),
+                options.input.clone(),
+            );
+            info!(credential_count, "Proving multi-VC Show circuit");
+            prove_circuit(
+                circuit,
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.artifact_path(&format!("{}_instance.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_witness.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+            );
+        }
+        CircuitAction::Verify => {
+            info!(credential_count, "Verifying multi-VC Show proof");
+            let public_values = verify_circuit(
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+                path_config.key_path(&format!("{}_verifying.key", circuit_stem)),
+            );
+            if !public_values.is_empty() {
+                let expression_result = public_values[0] == Field::ONE;
+                println!(
+                    "expressionResult: {} (raw: {:?})",
+                    expression_result, public_values[0]
+                );
+            }
+        }
+        CircuitAction::Reblind => {
+            info!(credential_count, "Reblinding multi-VC Show proof");
+            reblind(
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.artifact_path(&format!("{}_instance.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_witness.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+                path_config.artifact_path(SHARED_BLINDS),
+            );
+        }
+        CircuitAction::GenerateSharedBlinds => {
+            eprintln!("Error: generate_shared_blinds is only supported for Prepare circuits");
+            process::exit(1);
+        }
+        CircuitAction::Benchmark => {
+            eprintln!(
+                "Error: benchmark is not implemented for show-{}vc yet",
+                credential_count
+            );
+            process::exit(1);
+        }
+    }
+}
+
 fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
     if args.is_empty() {
         return Err("No command provided".into());
@@ -811,6 +892,8 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         "show" => parse_circuit_command(CircuitKind::Show, &args[1..]),
         "prepare-2vc" | "prepare_2vc" => parse_circuit_command(CircuitKind::Prepare2Vc, &args[1..]),
         "show-2vc" | "show_2vc" => parse_circuit_command(CircuitKind::Show2Vc, &args[1..]),
+        "show-3vc" | "show_3vc" => parse_circuit_command(CircuitKind::Show3Vc, &args[1..]),
+        "show-4vc" | "show_4vc" => parse_circuit_command(CircuitKind::Show4Vc, &args[1..]),
         "benchmark" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Benchmark,
@@ -1046,6 +1129,8 @@ Commands:
   show        <action>  Run action on single-VC Show circuit
   prepare-2vc <action>  Run action on two-credential Prepare circuit
   show-2vc    <action>  Run action on two-credential Show circuit
+  show-3vc    <action>  Run action on three-credential prepared-claims Show circuit
+  show-4vc    <action>  Run action on four-credential prepared-claims Show circuit
 
 Actions:
   run               Run circuit (setup, prove, verify)
@@ -1071,6 +1156,8 @@ Typical workflow:
   cargo run --release -- show    setup --size 1k
   cargo run --release -- prepare-2vc setup --size 1k
   cargo run --release -- show-2vc    setup --size 1k
+  cargo run --release -- show-3vc    setup --size 1k
+  cargo run --release -- show-4vc    setup --size 1k
   # repeat for 2k, 4k, 8k
 
   # 4. Benchmark all sizes (fast: prove+reblind+verify only)

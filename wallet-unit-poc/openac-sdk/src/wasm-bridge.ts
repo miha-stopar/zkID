@@ -10,8 +10,10 @@
 
 import { WasmError } from "./errors.js";
 import {
+  getPreparedMultiShowCircuitProfile,
   getMultiCredentialCircuitProfile,
   multiCredentialKeyFilenames,
+  preparedMultiKeyFilenames,
 } from "./multi-circuit.js";
 
 export type VcSize = "1k" | "2k" | "4k" | "8k";
@@ -57,6 +59,14 @@ interface OpenACWasmModule {
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
   precompute_show_2vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  precompute_show_3vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  precompute_show_4vc_from_witness(
     pk: Uint8Array,
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
@@ -232,6 +242,36 @@ export class WasmBridge {
     return { preparePk, prepareVk, showPk, showVk };
   }
 
+  async loadPreparedMultiKeys(
+    baseUrl: string,
+    vcSize: VcSize,
+    credentialCount: number,
+  ): Promise<SetupKeys> {
+    const keyFiles = preparedMultiKeyFilenames(credentialCount, vcSize);
+    const fetchKey = async (filename: string): Promise<Uint8Array> => {
+      const url = `${baseUrl}/${filename}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new WasmError(
+          "KEY_LOAD_FAILED",
+          `Failed to load key from ${url}: ${response.status} ${response.statusText}`,
+        );
+      }
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    };
+
+    const keys = await Promise.all(keyFiles.map(fetchKey));
+    const [preparePk, prepareVk, showPk, showVk] = keys as [
+      Uint8Array,
+      Uint8Array,
+      Uint8Array,
+      Uint8Array,
+    ];
+
+    return { preparePk, prepareVk, showPk, showVk };
+  }
+
   async precomputeFromWitness(
     preparePk: Uint8Array,
     witnessWtns: Uint8Array,
@@ -290,7 +330,7 @@ export class WasmBridge {
     showPk: Uint8Array,
     witnessWtns: Uint8Array,
   ): Promise<PrecomputeState> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     return this.precomputeWithWasmExport(
       profile.showWasmExport,
       showPk,

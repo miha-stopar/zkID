@@ -16,6 +16,8 @@ import type {
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
+  PreparedMultiShowProof,
+  PreparedMultiShowRequest,
   PrecomputedMultiCredential,
   PresentRequest,
   PresentMultiRequest,
@@ -96,6 +98,24 @@ export class OpenAC {
     );
   }
 
+  async loadPreparedMultiKeysFromUrl(
+    baseUrl: string,
+    vcSize: VcSize,
+    credentialCount: number,
+  ): Promise<KeySet> {
+    const keys = await this.bridge.loadPreparedMultiKeys(
+      baseUrl,
+      vcSize,
+      credentialCount,
+    );
+    return createKeySet(
+      keys.preparePk,
+      keys.prepareVk,
+      keys.showPk,
+      keys.showVk,
+    );
+  }
+
   async loadKeys(data: SerializedKeySet): Promise<KeySet> {
     return createKeySet(
       data.prepareProvingKey,
@@ -125,6 +145,12 @@ export class OpenAC {
     precomputedCredentials: PrecomputedCredential[],
   ): PreparedMultiCredential {
     return this.prover.bundlePrecomputedCredentials(precomputedCredentials);
+  }
+
+  async precomputePreparedMultiShow(
+    request: PreparedMultiShowRequest,
+  ): Promise<PreparedMultiShowProof> {
+    return this.prover.precomputePreparedMultiShow(request);
   }
 
   async present(request: PresentRequest): Promise<PresentationProof> {
@@ -273,12 +299,15 @@ export type {
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
+  PreparedMultiShowProof,
+  PreparedMultiShowRequest,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
   PresentMultiRequest,
   PresentationProof,
   PresentationTiming,
+  PreparedMultiShowTiming,
   MultiCredentialInput,
   ClaimNamespaceEntry,
   SerializedCredential,
@@ -288,9 +317,13 @@ export type {
 } from "./types.js";
 
 export {
+  SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS,
   SUPPORTED_MULTI_CREDENTIAL_COUNTS,
+  getPreparedMultiShowCircuitProfile,
   getMultiCredentialCircuitProfile,
   multiCredentialKeyFilenames,
+  preparedMultiKeyFilenames,
+  preparedMultiShowKeyFilenames,
 } from "./multi-circuit.js";
 
 export {

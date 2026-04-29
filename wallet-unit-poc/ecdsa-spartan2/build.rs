@@ -45,6 +45,8 @@ fn main() {
     }
 
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show_2vc)");
+    println!("cargo::rustc-check-cfg=cfg(has_circuit_show_3vc)");
+    println!("cargo::rustc-check-cfg=cfg(has_circuit_show_4vc)");
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show)");
     let show_cpp_file = circuits_dir.join("show.cpp");
     if show_cpp_file.exists() {
@@ -56,6 +58,17 @@ fn main() {
     if show_2vc_cpp_file.exists() {
         println!("cargo:rustc-cfg=has_circuit_show_2vc");
         println!("cargo:warning=Found compiled circuit: show_2vc.cpp — enabling 2VC Show support");
+    }
+
+    for count in [3, 4] {
+        let show_multi_cpp_file = circuits_dir.join(format!("show_{}vc.cpp", count));
+        if show_multi_cpp_file.exists() {
+            println!("cargo:rustc-cfg=has_circuit_show_{}vc", count);
+            println!(
+                "cargo:warning=Found compiled circuit: show_{}vc.cpp — enabling {}VC Show support",
+                count, count
+            );
+        }
     }
 
     // Only run witnesscalc build when the native-witness feature is enabled.

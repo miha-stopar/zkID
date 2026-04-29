@@ -364,6 +364,25 @@ export interface PreparedMultiCredential {
   toJSON(): SerializedPreparedMultiCredentialJSON;
 }
 
+export interface PreparedMultiShowRequest {
+  prepared: PreparedMultiCredential;
+  verifierNonce: string;
+  devicePrivateKey: EcdsaPrivateKey;
+  keys: Pick<KeySet, "showProvingKey">;
+  showParams?: ShowCircuitParams;
+  showInputOptions?: import("./inputs/show-input-builder.js").ShowInputOptions;
+}
+
+export interface PreparedMultiShowProof {
+  kind: MultiCredentialCircuitKind;
+  credentialCount: number;
+  showProof: Uint8Array;
+  showInstance: Uint8Array;
+  showWitness: Uint8Array;
+  publicValues: ProofPublicValues;
+  timing: PreparedMultiShowTiming;
+}
+
 export interface PrecomputedMultiCredential {
   kind: MultiCredentialCircuitKind;
   prepareProof: Uint8Array;
@@ -462,5 +481,11 @@ export interface PresentationTiming {
   showWitnessMs: number;
   showProveMs: number;
   presentMs: number;
+  totalMs: number;
+}
+
+export interface PreparedMultiShowTiming {
+  showWitnessMs: number;
+  showProveMs: number;
   totalMs: number;
 }
