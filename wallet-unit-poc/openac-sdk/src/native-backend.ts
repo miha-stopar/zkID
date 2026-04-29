@@ -121,16 +121,22 @@ export class NativeBackend {
     }
   }
 
+  private withSize(args: string[]): string[] {
+    return [...args, "--size", this.vcSize];
+  }
+
+  private withInput(args: string[], inputPath?: string): string[] {
+    const sizedArgs = this.withSize(args);
+    if (inputPath) sizedArgs.push("--input", inputPath);
+    return sizedArgs;
+  }
+
   async setupPrepare(inputPath?: string): Promise<void> {
-    const args = ["prepare", "setup"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 1_200_000);
+    await this.run(this.withInput(["prepare", "setup"], inputPath), 1_200_000);
   }
 
   async setupShow(inputPath?: string): Promise<void> {
-    const args = ["show", "setup"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 600_000);
+    await this.run(this.withInput(["show", "setup"], inputPath), 600_000);
   }
 
   async setupPrepare2Vc(inputPath?: string): Promise<void> {
@@ -146,9 +152,10 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const args = [profile.prepareCliName, "setup"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 1_800_000);
+    await this.run(
+      this.withInput([profile.prepareCliName, "setup"], inputPath),
+      1_800_000,
+    );
   }
 
   async setupShowMulti(
@@ -156,9 +163,10 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const args = [profile.showCliName, "setup"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 600_000);
+    await this.run(
+      this.withInput([profile.showCliName, "setup"], inputPath),
+      600_000,
+    );
   }
 
   async setupLinkMulti(
@@ -166,9 +174,10 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const args = [profile.linkCliName, "setup"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 600_000);
+    await this.run(
+      this.withInput([profile.linkCliName, "setup"], inputPath),
+      600_000,
+    );
   }
 
   async setup(inputPath?: string): Promise<void> {
@@ -177,15 +186,11 @@ export class NativeBackend {
   }
 
   async provePrepare(inputPath?: string): Promise<void> {
-    const args = ["prepare", "prove"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 300_000);
+    await this.run(this.withInput(["prepare", "prove"], inputPath), 300_000);
   }
 
   async proveShow(inputPath?: string): Promise<void> {
-    const args = ["show", "prove"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 120_000);
+    await this.run(this.withInput(["show", "prove"], inputPath), 120_000);
   }
 
   async provePrepare2Vc(inputPath?: string): Promise<void> {
@@ -201,9 +206,10 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const args = [profile.prepareCliName, "prove"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 600_000);
+    await this.run(
+      this.withInput([profile.prepareCliName, "prove"], inputPath),
+      600_000,
+    );
   }
 
   async proveShowMulti(
@@ -211,9 +217,10 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const args = [profile.showCliName, "prove"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 120_000);
+    await this.run(
+      this.withInput([profile.showCliName, "prove"], inputPath),
+      120_000,
+    );
   }
 
   async proveLinkMulti(
@@ -221,21 +228,22 @@ export class NativeBackend {
     inputPath?: string,
   ): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const args = [profile.linkCliName, "prove"];
-    if (inputPath) args.push("--input", inputPath);
-    await this.run(args, 120_000);
+    await this.run(
+      this.withInput([profile.linkCliName, "prove"], inputPath),
+      120_000,
+    );
   }
 
   async generateSharedBlinds(): Promise<void> {
-    await this.run(["generate_shared_blinds"]);
+    await this.run(this.withSize(["generate_shared_blinds"]));
   }
 
   async reblindPrepare(): Promise<void> {
-    await this.run(["prepare", "reblind"], 300_000);
+    await this.run(this.withSize(["prepare", "reblind"]), 300_000);
   }
 
   async reblindShow(): Promise<void> {
-    await this.run(["show", "reblind"], 120_000);
+    await this.run(this.withSize(["show", "reblind"]), 120_000);
   }
 
   async reblindPrepare2Vc(): Promise<void> {
@@ -248,21 +256,24 @@ export class NativeBackend {
 
   async reblindPrepareMulti(credentialCount = 2): Promise<void> {
     const profile = getMultiCredentialCircuitProfile(credentialCount);
-    await this.run([profile.prepareCliName, "reblind"], 600_000);
+    await this.run(
+      this.withSize([profile.prepareCliName, "reblind"]),
+      600_000,
+    );
   }
 
   async reblindShowMulti(credentialCount = 2): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    await this.run([profile.showCliName, "reblind"], 120_000);
+    await this.run(this.withSize([profile.showCliName, "reblind"]), 120_000);
   }
 
   async reblindLinkMulti(credentialCount = 2): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    await this.run([profile.linkCliName, "reblind"], 120_000);
+    await this.run(this.withSize([profile.linkCliName, "reblind"]), 120_000);
   }
 
   async verifyPrepare(): Promise<NativeVerificationResult> {
-    const { stdout, stderr } = await this.run(["prepare", "verify"]);
+    const { stdout, stderr } = await this.run(this.withSize(["prepare", "verify"]));
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -271,7 +282,7 @@ export class NativeBackend {
   }
 
   async verifyShow(): Promise<NativeVerificationResult> {
-    const { stdout, stderr } = await this.run(["show", "verify"]);
+    const { stdout, stderr } = await this.run(this.withSize(["show", "verify"]));
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -291,7 +302,9 @@ export class NativeBackend {
     credentialCount = 2,
   ): Promise<NativeVerificationResult> {
     const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const { stdout, stderr } = await this.run([profile.prepareCliName, "verify"]);
+    const { stdout, stderr } = await this.run(
+      this.withSize([profile.prepareCliName, "verify"]),
+    );
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -303,7 +316,9 @@ export class NativeBackend {
     credentialCount = 2,
   ): Promise<NativeVerificationResult> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const { stdout, stderr } = await this.run([profile.showCliName, "verify"]);
+    const { stdout, stderr } = await this.run(
+      this.withSize([profile.showCliName, "verify"]),
+    );
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -315,7 +330,9 @@ export class NativeBackend {
     credentialCount = 2,
   ): Promise<NativeVerificationResult> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
-    const { stdout, stderr } = await this.run([profile.linkCliName, "verify"]);
+    const { stdout, stderr } = await this.run(
+      this.withSize([profile.linkCliName, "verify"]),
+    );
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),
@@ -324,9 +341,10 @@ export class NativeBackend {
   }
 
   async runBenchmark(inputPath?: string): Promise<string> {
-    const args = ["benchmark"];
-    if (inputPath) args.push("--input", inputPath);
-    const { stdout, stderr } = await this.run(args, 1_800_000);
+    const { stdout, stderr } = await this.run(
+      this.withInput(["benchmark"], inputPath),
+      1_800_000,
+    );
     return stdout + stderr;
   }
 
