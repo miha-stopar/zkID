@@ -72,6 +72,55 @@ describe("WASM Verifier — Class Structure", () => {
     const verifier = new Verifier(bridge);
     expect(typeof verifier.verifyComponents).toBe("function");
   });
+
+  it("decodes Map-shaped verify_single results from serde_wasm_bindgen", async () => {
+    const bridge = new WasmBridge();
+    bridge.initWithModule({
+      init() {},
+      verify_single() {
+        return new Map<string, unknown>([
+          ["valid", true],
+          ["public_values", ["0x1", "0x2"]],
+        ]);
+      },
+    });
+
+    const result = await bridge.verifySingle(new Uint8Array([1]), new Uint8Array([2]));
+
+    expect(result).toEqual({
+      valid: true,
+      publicValues: ["0x1", "0x2"],
+    });
+  });
+
+  it("decodes Map-shaped combined verify results from serde_wasm_bindgen", async () => {
+    const bridge = new WasmBridge();
+    bridge.initWithModule({
+      init() {},
+      verify() {
+        return new Map<string, unknown>([
+          ["valid", true],
+          ["prepare_public_values", ["0x1"]],
+          ["show_public_values", ["0x2", "0x3", "0x4"]],
+          ["error", null],
+        ]);
+      },
+    });
+
+    const result = await bridge.verify(
+      new Uint8Array([1]),
+      new Uint8Array([2]),
+      new Uint8Array([3]),
+      new Uint8Array([4]),
+      new Uint8Array([5]),
+      new Uint8Array([6]),
+    );
+
+    expect(result.valid).toBe(true);
+    expect(result.preparePublicValues).toEqual(["0x1"]);
+    expect(result.showPublicValues).toEqual(["0x2", "0x3", "0x4"]);
+    expect(result.error).toBeUndefined();
+  });
 });
 
 describe.skipIf(!checkVerificationArtifactsExist())(
@@ -229,4 +278,3 @@ describe.skipIf(!checkVerificationArtifactsExist())(
     }, 30_000);
   },
 );
-

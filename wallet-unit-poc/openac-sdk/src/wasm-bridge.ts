@@ -43,6 +43,8 @@ interface WasmSingleVerifyResult {
   public_values: string[];
 }
 
+type WasmJsValue = unknown;
+
 interface OpenACWasmModule {
   [exportName: string]: unknown;
   init(): void;
@@ -303,9 +305,9 @@ export class WasmBridge {
     const wasm = this.getWasm();
     const result = wasm.precompute_from_witness(preparePk, witnessWtns);
     return {
-      proof: new Uint8Array(result.proof),
-      instance: new Uint8Array(result.instance),
-      witness: new Uint8Array(result.witness),
+      proof: wasmBytes(result, "proof"),
+      instance: wasmBytes(result, "instance"),
+      witness: wasmBytes(result, "witness"),
     };
   }
 
@@ -316,9 +318,9 @@ export class WasmBridge {
     const wasm = this.getWasm();
     const result = wasm.precompute_show_from_witness(showPk, witnessWtns);
     return {
-      proof: new Uint8Array(result.proof),
-      instance: new Uint8Array(result.instance),
-      witness: new Uint8Array(result.witness),
+      proof: wasmBytes(result, "proof"),
+      instance: wasmBytes(result, "instance"),
+      witness: wasmBytes(result, "witness"),
     };
   }
 
@@ -383,9 +385,9 @@ export class WasmBridge {
     const wasm = this.getWasm();
     const result = wasm.reblind_from_witness(pk, instance, witness);
     return {
-      proof: new Uint8Array(result.proof),
-      instance: new Uint8Array(result.instance),
-      witness: new Uint8Array(result.witness),
+      proof: wasmBytes(result, "proof"),
+      instance: wasmBytes(result, "instance"),
+      witness: wasmBytes(result, "witness"),
     };
   }
 
@@ -432,10 +434,10 @@ export class WasmBridge {
       showWitness,
     );
     return {
-      prepareProof: new Uint8Array(result.prepare_proof),
-      prepareInstance: new Uint8Array(result.prepare_instance),
-      showProof: new Uint8Array(result.show_proof),
-      showInstance: new Uint8Array(result.show_instance),
+      prepareProof: wasmBytes(result, "prepare_proof"),
+      prepareInstance: wasmBytes(result, "prepare_instance"),
+      showProof: wasmBytes(result, "show_proof"),
+      showInstance: wasmBytes(result, "show_instance"),
     };
   }
 
@@ -458,10 +460,10 @@ export class WasmBridge {
         showInstance,
       );
       return {
-        valid: result.valid,
-        preparePublicValues: result.prepare_public_values,
-        showPublicValues: result.show_public_values,
-        error: result.error ?? undefined,
+        valid: wasmBool(result, "valid"),
+        preparePublicValues: wasmStringArray(result, "prepare_public_values"),
+        showPublicValues: wasmStringArray(result, "show_public_values"),
+        error: wasmOptionalString(result, "error"),
       };
     } catch (error) {
       // Handle deserialization and verification errors from WASM
@@ -482,7 +484,10 @@ export class WasmBridge {
   ): Promise<{ valid: boolean; publicValues: string[] }> {
     const wasm = this.getWasm();
     const result = wasm.verify_single(proof, vk);
-    return { valid: result.valid, publicValues: result.public_values };
+    return {
+      valid: wasmBool(result, "valid"),
+      publicValues: wasmStringArray(result, "public_values"),
+    };
   }
 
   /** @deprecated Use verify() instead — commitment check is now internal */
@@ -509,6 +514,44 @@ async function initBundledWasmPackModule(
   }
 
   await module.default();
+}
+
+function wasmField<T = unknown>(
+  value: WasmJsValue,
+  snakeName: string,
+  camelName = snakeToCamel(snakeName),
+): T | undefined {
+  if (value instanceof Map) {
+    return (value.get(snakeName) ?? value.get(camelName)) as T | undefined;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (record[snakeName] ?? record[camelName]) as T | undefined;
+  }
+  return undefined;
+}
+
+function wasmBytes(value: WasmJsValue, name: string): Uint8Array {
+  const field = wasmField<Uint8Array | number[] | ArrayBuffer>(value, name);
+  return new Uint8Array(field ?? []);
+}
+
+function wasmBool(value: WasmJsValue, name: string): boolean {
+  return wasmField<boolean>(value, name) === true;
+}
+
+function wasmStringArray(value: WasmJsValue, name: string): string[] {
+  const field = wasmField<unknown>(value, name);
+  return Array.isArray(field) ? field.map(String) : [];
+}
+
+function wasmOptionalString(value: WasmJsValue, name: string): string | undefined {
+  const field = wasmField<unknown>(value, name);
+  return typeof field === "string" ? field : undefined;
+}
+
+function snakeToCamel(value: string): string {
+  return value.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
 }
 
 function isNodeLikeRuntime(): boolean {
