@@ -110,6 +110,8 @@ const result = await openac.verifyPreparedMulti(
 
 `precomputePreparedMulti` runs the normal single-credential Prepare circuit once per credential and bundles the saved normalized claims. `presentPreparedMulti` verifies predicates over 2, 3, or 4 prepared credentials and includes a linker proof that binds the multi-credential Show proof to the verified Prepare outputs.
 
+At verification time a prepared multi-credential presentation contains one Prepare proof per credential, one Link proof, and one multi-credential Show proof. The verifier checks every Prepare proof, verifies Link public values against the Prepare public outputs, verifies Show, and compares the Link/Show shared witness commitment. That binds Show to the same device key and flattened prepared claims.
+
 ### One-Shot (no precompute/present split)
 
 ```typescript

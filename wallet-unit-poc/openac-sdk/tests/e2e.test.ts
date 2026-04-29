@@ -382,6 +382,25 @@ describe("Input Builders via SDK", () => {
     expect(bundle.claimNamespace.map((entry) => entry.globalIndex)).toEqual([0, 1, 2, 3, 4, 5]);
     expect(bundle.claimNamespace[4]!.credentialIndex).toBe(2);
     expect(roundTripped.normalizedClaimValues).toEqual(bundle.normalizedClaimValues);
+
+    expect(() =>
+      bundlePrecomputedCredentials([
+        makePrepared([10n, 20n], "a"),
+        makePrepared([30n, 40n], "b"),
+        makePrepared([50n, 60n], "c"),
+        makePrepared([70n, 80n], "d"),
+        makePrepared([90n, 100n], "e"),
+      ]),
+    ).toThrow("Unsupported prepared multi-credential Show count 5");
+
+    expect(() =>
+      bundlePrecomputedCredentials([
+        makePrepared([10n, 20n], "a"),
+        makePrepared([30n], "b"),
+      ]),
+    ).toThrow(
+      "Prepared credential 1 normalized claim count (1) does not match claimsPerCredential (2)",
+    );
   });
 
   it("buildShowCircuitInputs creates valid circuit inputs", () => {

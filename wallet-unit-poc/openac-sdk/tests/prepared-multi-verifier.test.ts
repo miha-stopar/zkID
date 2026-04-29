@@ -131,6 +131,65 @@ describe("Verifier.verifyPreparedMulti", () => {
     expect(result.error).toContain("Shared commitment mismatch");
   });
 
+  it("rejects malformed presentation metadata before proof verification", async () => {
+    const bridge = makeBridge();
+    const verifier = new Verifier(bridge);
+
+    const result = await verifier.verifyPreparedMulti(
+      makeProof({
+        publicValues: {
+          expressionResult: true,
+          deviceKeyX: "111",
+          deviceKeyY: "222",
+          normalizedClaimValues: [10n, 20n],
+        },
+      }),
+      keys,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain(
+      "Prepared multi proof public normalized claim count mismatch",
+    );
+    expect(bridge.verifySingle).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Link proof whose public values do not match the Prepare outputs", async () => {
+    const linkValues = expectedLinkPublicValues();
+    linkValues[5] = "999";
+    const publicValues = new Map<number, string[]>([
+      [10, ["10", "20", "111", "222"]],
+      [11, ["30", "40", "111", "222"]],
+      [12, ["50", "60", "111", "222"]],
+      [20, linkValues],
+      [30, ["1", "111", "222"]],
+    ]);
+    const verifier = new Verifier(makeBridge(publicValues));
+
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("Link proof public value mismatch at index 5");
+  });
+
+  it("rejects a Show proof whose device key does not match the prepared credentials", async () => {
+    const publicValues = new Map<number, string[]>([
+      [10, ["10", "20", "111", "222"]],
+      [11, ["30", "40", "111", "222"]],
+      [12, ["50", "60", "111", "222"]],
+      [20, expectedLinkPublicValues()],
+      [30, ["1", "111", "999"]],
+    ]);
+    const verifier = new Verifier(makeBridge(publicValues));
+
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe(
+      "Show proof device key does not match prepared credentials",
+    );
+  });
+
   it("rejects malformed Prepare public values instead of padding missing fields", async () => {
     const publicValues = new Map<number, string[]>([
       [10, ["10", "20", "111"]],

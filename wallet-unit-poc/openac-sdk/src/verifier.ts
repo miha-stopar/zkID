@@ -151,6 +151,18 @@ export class Verifier {
       );
     }
 
+    const expectedClaimCount = proof.credentialCount * proof.claimsPerCredential;
+    const normalizedClaimValues = proof.publicValues?.normalizedClaimValues;
+    if (
+      !Array.isArray(normalizedClaimValues) ||
+      normalizedClaimValues.length !== expectedClaimCount
+    ) {
+      return this.invalidResult(
+        startTime,
+        `Prepared multi proof public normalized claim count mismatch: expected ${expectedClaimCount}`,
+      );
+    }
+
     if (
       proof.prepareProofs.length !== proof.credentialCount ||
       proof.prepareInstances.length !== proof.credentialCount

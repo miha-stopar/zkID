@@ -12,6 +12,7 @@ import {
   getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
+import type { PreparedMultiShowCircuitProfile } from "./multi-circuit.js";
 import { circuitInputsToJson, base64Encode, base64urlToBigInt } from "./utils.js";
 import { InputError, ProofError } from "./errors.js";
 import { base64Decode } from "./utils.js";
@@ -166,7 +167,8 @@ export class Prover {
   ): Promise<PrecomputedMultiCredential> {
     const startTime = performance.now();
     const timing: Partial<PrecomputeTiming> = {};
-    const credentialCount = request.credentialCount ?? request.credentials.length;
+    const credentialCount =
+      request.credentialCount ?? request.credentials.length;
     const profile = getMultiCredentialCircuitProfile(credentialCount);
     const jwtParams: JwtCircuitParams = request.jwtParams ?? profile.defaultJwtParams;
     if (request.credentials.length !== profile.credentialCount) {
@@ -247,6 +249,15 @@ export class Prover {
   async precomputePreparedMulti(
     request: PrecomputePreparedMultiRequest,
   ): Promise<PreparedMultiCredential> {
+    const credentialCount = request.credentialCount ?? request.credentials.length;
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    if (request.credentials.length !== profile.credentialCount) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `precomputePreparedMulti for ${profile.kind} requires exactly ${profile.credentialCount} credentials`,
+      );
+    }
+
     const prepared: PrecomputedCredential[] = [];
     for (const credential of request.credentials) {
       prepared.push(
@@ -279,12 +290,7 @@ export class Prover {
 
     const { prepared, verifierNonce, devicePrivateKey, keys } = request;
     const profile = getPreparedMultiShowCircuitProfile(prepared.credentialCount);
-    if (prepared.kind !== profile.kind) {
-      throw new InputError(
-        "PARAMS_EXCEEDED",
-        `Prepared bundle kind ${prepared.kind} does not match ${profile.kind}`,
-      );
-    }
+    this.assertPreparedBundle(prepared, profile);
 
     const showParams = request.showParams ?? profile.defaultShowParams;
     if (showParams.nClaims !== prepared.normalizedClaimValues.length) {
@@ -368,12 +374,7 @@ export class Prover {
 
     const { prepared, verifierNonce, devicePrivateKey, keys } = request;
     const profile = getPreparedMultiShowCircuitProfile(prepared.credentialCount);
-    if (prepared.kind !== profile.kind) {
-      throw new InputError(
-        "PARAMS_EXCEEDED",
-        `Prepared bundle kind ${prepared.kind} does not match ${profile.kind}`,
-      );
-    }
+    this.assertPreparedBundle(prepared, profile);
 
     const showParams = request.showParams ?? profile.defaultShowParams;
     this.assertPreparedShowParams(prepared, showParams, request.showInputOptions?.normalizedClaimValues);
@@ -1015,6 +1016,83 @@ export class Prover {
     };
   }
 
+  private assertPreparedBundle(
+    prepared: PreparedMultiCredential,
+    profile: PreparedMultiShowCircuitProfile,
+  ): void {
+    if (prepared.kind !== profile.kind) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle kind ${prepared.kind} does not match ${profile.kind}`,
+      );
+    }
+
+    if (
+      prepared.credentialCount !== profile.credentialCount ||
+      prepared.credentials.length !== profile.credentialCount ||
+      prepared.precomputedCredentials.length !== profile.credentialCount
+    ) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle for ${profile.kind} must contain exactly ${profile.credentialCount} prepared credentials`,
+      );
+    }
+
+    const expectedClaimsPerCredential =
+      profile.defaultShowParams.nClaims / profile.credentialCount;
+    if (prepared.claimsPerCredential !== expectedClaimsPerCredential) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle claimsPerCredential (${prepared.claimsPerCredential}) does not match ${profile.kind} Show claim capacity (${expectedClaimsPerCredential})`,
+      );
+    }
+
+    const expectedClaimCount =
+      profile.credentialCount * prepared.claimsPerCredential;
+    if (prepared.normalizedClaimValues.length !== expectedClaimCount) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle normalized claim count (${prepared.normalizedClaimValues.length}) does not match ${profile.kind} claim capacity (${expectedClaimCount})`,
+      );
+    }
+
+    const flattenedClaims: bigint[] = [];
+    for (const [index, precomputed] of prepared.precomputedCredentials.entries()) {
+      if (
+        precomputed.deviceKey.x !== prepared.deviceKey.x ||
+        precomputed.deviceKey.y !== prepared.deviceKey.y
+      ) {
+        throw new InputError(
+          "INVALID_KEY",
+          `Prepared credential ${index} uses a different device binding key`,
+        );
+      }
+      if (precomputed.claimsPerCredential !== prepared.claimsPerCredential) {
+        throw new InputError(
+          "PARAMS_EXCEEDED",
+          `Prepared credential ${index} uses a different Prepare claim capacity`,
+        );
+      }
+      if (
+        precomputed.normalizedClaimValues.length !==
+        prepared.claimsPerCredential
+      ) {
+        throw new InputError(
+          "PARAMS_EXCEEDED",
+          `Prepared credential ${index} normalized claim count (${precomputed.normalizedClaimValues.length}) does not match claimsPerCredential (${prepared.claimsPerCredential})`,
+        );
+      }
+      flattenedClaims.push(...precomputed.normalizedClaimValues);
+    }
+
+    if (!this.bigintArraysEqual(flattenedClaims, prepared.normalizedClaimValues)) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        "Prepared bundle normalized claims do not match the bundled Prepare outputs",
+      );
+    }
+  }
+
   private defaultDecodeFlags(credential: Credential): number[] {
     return credential.claims.map((claim) =>
       this.isBirthdayClaimName(claim.name) ? 1 : 0,
@@ -1394,6 +1472,9 @@ export function bundlePrecomputedCredentials(
       "A multi-credential presentation requires at least two prepared credentials",
     );
   }
+  const profile = getPreparedMultiShowCircuitProfile(
+    precomputedCredentials.length,
+  );
 
   const deviceKey = precomputedCredentials[0]!.deviceKey;
   const claimsPerCredential = precomputedCredentials[0]!.claimsPerCredential;
@@ -1408,6 +1489,12 @@ export function bundlePrecomputedCredentials(
       throw new InputError(
         "PARAMS_EXCEEDED",
         "All prepared credentials in a bundle must use the same Prepare claim capacity",
+      );
+    }
+    if (precomputed.normalizedClaimValues.length !== claimsPerCredential) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+          `Prepared credential ${index} normalized claim count (${precomputed.normalizedClaimValues.length}) does not match claimsPerCredential (${claimsPerCredential})`,
       );
     }
   }
@@ -1426,10 +1513,10 @@ export function bundlePrecomputedCredentials(
   );
 
   const result: PreparedMultiCredential = {
-    kind: `multi-vc-${precomputedCredentials.length}`,
+    kind: profile.kind,
     credentials: precomputedCredentials.map((precomputed) => precomputed.credential),
     deviceKey,
-    credentialCount: precomputedCredentials.length,
+    credentialCount: profile.credentialCount,
     claimsPerCredential,
     normalizedClaimValues,
     claimNamespace,
