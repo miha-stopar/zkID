@@ -154,10 +154,22 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
   const show4vcOutputDir = isDefault
     ? path.join(circomDir, "inputs", "show_4vc")
     : path.join(circomDir, "inputs", "show_4vc", sizeName);
+  const link2vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "link_2vc")
+    : path.join(circomDir, "inputs", "link_2vc", sizeName);
+  const link3vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "link_3vc")
+    : path.join(circomDir, "inputs", "link_3vc", sizeName);
+  const link4vcOutputDir = isDefault
+    ? path.join(circomDir, "inputs", "link_4vc")
+    : path.join(circomDir, "inputs", "link_4vc", sizeName);
   fs.mkdirSync(prepare2vcOutputDir, { recursive: true });
   fs.mkdirSync(show2vcOutputDir, { recursive: true });
   fs.mkdirSync(show3vcOutputDir, { recursive: true });
   fs.mkdirSync(show4vcOutputDir, { recursive: true });
+  fs.mkdirSync(link2vcOutputDir, { recursive: true });
+  fs.mkdirSync(link3vcOutputDir, { recursive: true });
+  fs.mkdirSync(link4vcOutputDir, { recursive: true });
 
   const prepare2vcInputs = {
     vc0: mockData.circuitInputs,
@@ -232,19 +244,34 @@ async function generateInputsForSize(sizeName: string): Promise<void> {
     3n,
   );
 
+  const buildLinkInputs = (showInputs: typeof show2vcInputs) => ({
+    expectedDeviceKeyX: showInputs.deviceKeyX,
+    expectedDeviceKeyY: showInputs.deviceKeyY,
+    expectedClaimValues: showInputs.claimValues,
+  });
+
   const prepare2vcOutputPath = path.join(prepare2vcOutputDir, "default.json");
   const show2vcOutputPath = path.join(show2vcOutputDir, "default.json");
   const show3vcOutputPath = path.join(show3vcOutputDir, "default.json");
   const show4vcOutputPath = path.join(show4vcOutputDir, "default.json");
+  const link2vcOutputPath = path.join(link2vcOutputDir, "default.json");
+  const link3vcOutputPath = path.join(link3vcOutputDir, "default.json");
+  const link4vcOutputPath = path.join(link4vcOutputDir, "default.json");
   fs.writeFileSync(prepare2vcOutputPath, JSON.stringify(prepare2vcInputs, bigintReplacer, 2));
   fs.writeFileSync(show2vcOutputPath, JSON.stringify(show2vcInputs, bigintReplacer, 2));
   fs.writeFileSync(show3vcOutputPath, JSON.stringify(show3vcInputs, bigintReplacer, 2));
   fs.writeFileSync(show4vcOutputPath, JSON.stringify(show4vcInputs, bigintReplacer, 2));
+  fs.writeFileSync(link2vcOutputPath, JSON.stringify(buildLinkInputs(show2vcInputs), bigintReplacer, 2));
+  fs.writeFileSync(link3vcOutputPath, JSON.stringify(buildLinkInputs(show3vcInputs), bigintReplacer, 2));
+  fs.writeFileSync(link4vcOutputPath, JSON.stringify(buildLinkInputs(show4vcInputs), bigintReplacer, 2));
 
   console.log(`  Prepare2VC inputs → ${path.relative(circomDir, prepare2vcOutputPath)}`);
   console.log(`  Show2VC inputs    → ${path.relative(circomDir, show2vcOutputPath)}`);
   console.log(`  Show3VC inputs    → ${path.relative(circomDir, show3vcOutputPath)}`);
   console.log(`  Show4VC inputs    → ${path.relative(circomDir, show4vcOutputPath)}`);
+  console.log(`  Link2VC inputs    → ${path.relative(circomDir, link2vcOutputPath)}`);
+  console.log(`  Link3VC inputs    → ${path.relative(circomDir, link3vcOutputPath)}`);
+  console.log(`  Link4VC inputs    → ${path.relative(circomDir, link4vcOutputPath)}`);
 }
 
 async function main(): Promise<void> {
@@ -255,8 +282,8 @@ async function main(): Promise<void> {
 Usage: npx ts-node src/generate-inputs.ts [options]
 
 Options:
-  --size <size>  Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show inputs for a size (default | 1k | 2k | 4k | 8k)
-  --all          Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show inputs for all sizes
+  --size <size>  Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show+Link inputs for a size (default | 1k | 2k | 4k | 8k)
+  --all          Generate single-VC, 2VC Prepare, and 2VC/3VC/4VC Show+Link inputs for all sizes
   -h, --help     Show this help message
 
 Examples:

@@ -70,6 +70,23 @@ interface OpenACWasmModule {
     pk: Uint8Array,
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
+  precompute_link_2vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  precompute_link_3vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  precompute_link_4vc_from_witness(
+    pk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): WasmPrecomputeResult;
+  reblind_from_witness(
+    pk: Uint8Array,
+    instance: Uint8Array,
+    witness: Uint8Array,
+  ): WasmPrecomputeResult;
   present(
     preparePk: Uint8Array,
     prepareInstance: Uint8Array,
@@ -100,6 +117,11 @@ export interface SetupKeys {
   prepareVk: Uint8Array;
   showPk: Uint8Array;
   showVk: Uint8Array;
+}
+
+export interface PreparedMultiSetupKeys extends SetupKeys {
+  linkPk: Uint8Array;
+  linkVk: Uint8Array;
 }
 
 export interface PrecomputeState {
@@ -246,7 +268,7 @@ export class WasmBridge {
     baseUrl: string,
     vcSize: VcSize,
     credentialCount: number,
-  ): Promise<SetupKeys> {
+  ): Promise<PreparedMultiSetupKeys> {
     const keyFiles = preparedMultiKeyFilenames(credentialCount, vcSize);
     const fetchKey = async (filename: string): Promise<Uint8Array> => {
       const url = `${baseUrl}/${filename}`;
@@ -262,14 +284,16 @@ export class WasmBridge {
     };
 
     const keys = await Promise.all(keyFiles.map(fetchKey));
-    const [preparePk, prepareVk, showPk, showVk] = keys as [
+    const [preparePk, prepareVk, showPk, showVk, linkPk, linkVk] = keys as [
+      Uint8Array,
+      Uint8Array,
       Uint8Array,
       Uint8Array,
       Uint8Array,
       Uint8Array,
     ];
 
-    return { preparePk, prepareVk, showPk, showVk };
+    return { preparePk, prepareVk, showPk, showVk, linkPk, linkVk };
   }
 
   async precomputeFromWitness(
@@ -336,6 +360,33 @@ export class WasmBridge {
       showPk,
       witnessWtns,
     );
+  }
+
+  async precomputeLinkMultiFromWitness(
+    credentialCount: number,
+    linkPk: Uint8Array,
+    witnessWtns: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    return this.precomputeWithWasmExport(
+      profile.linkWasmExport,
+      linkPk,
+      witnessWtns,
+    );
+  }
+
+  async reblindFromWitness(
+    pk: Uint8Array,
+    instance: Uint8Array,
+    witness: Uint8Array,
+  ): Promise<PrecomputeState> {
+    const wasm = this.getWasm();
+    const result = wasm.reblind_from_witness(pk, instance, witness);
+    return {
+      proof: new Uint8Array(result.proof),
+      instance: new Uint8Array(result.instance),
+      witness: new Uint8Array(result.witness),
+    };
   }
 
   private precomputeWithWasmExport(

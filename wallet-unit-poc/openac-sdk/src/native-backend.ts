@@ -161,6 +161,16 @@ export class NativeBackend {
     await this.run(args, 600_000);
   }
 
+  async setupLinkMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    const args = [profile.linkCliName, "setup"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 600_000);
+  }
+
   async setup(inputPath?: string): Promise<void> {
     await this.setupPrepare(inputPath);
     await this.setupShow(inputPath);
@@ -206,6 +216,16 @@ export class NativeBackend {
     await this.run(args, 120_000);
   }
 
+  async proveLinkMulti(
+    credentialCount = 2,
+    inputPath?: string,
+  ): Promise<void> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    const args = [profile.linkCliName, "prove"];
+    if (inputPath) args.push("--input", inputPath);
+    await this.run(args, 120_000);
+  }
+
   async generateSharedBlinds(): Promise<void> {
     await this.run(["generate_shared_blinds"]);
   }
@@ -234,6 +254,11 @@ export class NativeBackend {
   async reblindShowMulti(credentialCount = 2): Promise<void> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     await this.run([profile.showCliName, "reblind"], 120_000);
+  }
+
+  async reblindLinkMulti(credentialCount = 2): Promise<void> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    await this.run([profile.linkCliName, "reblind"], 120_000);
   }
 
   async verifyPrepare(): Promise<NativeVerificationResult> {
@@ -279,6 +304,18 @@ export class NativeBackend {
   ): Promise<NativeVerificationResult> {
     const profile = getPreparedMultiShowCircuitProfile(credentialCount);
     const { stdout, stderr } = await this.run([profile.showCliName, "verify"]);
+    const output = stdout + stderr;
+    return {
+      valid: output.includes("Verification successful"),
+      output,
+    };
+  }
+
+  async verifyLinkMulti(
+    credentialCount = 2,
+  ): Promise<NativeVerificationResult> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    const { stdout, stderr } = await this.run([profile.linkCliName, "verify"]);
     const output = stdout + stderr;
     return {
       valid: output.includes("Verification successful"),

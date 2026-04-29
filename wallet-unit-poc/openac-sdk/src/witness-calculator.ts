@@ -27,6 +27,7 @@ export class WitnessCalculator {
   private showCalculator: WitnessCalculatorInstance | null = null;
   private prepareMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private showMultiCalculators = new Map<number, WitnessCalculatorInstance>();
+  private linkMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private builder: WitnessCalculatorBuilder | null = null;
 
   private jwtWasmPath: string;
@@ -153,6 +154,22 @@ export class WitnessCalculator {
     return await calculator.calculateWTNSBin(inputs as CircuitInput, true);
   }
 
+  async calculateLinkMultiWitness(
+    credentialCount: number,
+    inputs: CircuitInput,
+  ): Promise<bigint[]> {
+    const calculator = await this.getLinkMultiCalculator(credentialCount);
+    return await calculator.calculateWitness(inputs, true);
+  }
+
+  async calculateLinkMultiWitnessWtns(
+    credentialCount: number,
+    inputs: CircuitInput,
+  ): Promise<Uint8Array> {
+    const calculator = await this.getLinkMultiCalculator(credentialCount);
+    return await calculator.calculateWTNSBin(inputs, true);
+  }
+
   private async getPrepareMultiCalculator(
     credentialCount: number,
   ): Promise<WitnessCalculatorInstance> {
@@ -178,6 +195,20 @@ export class WitnessCalculator {
       join(this.assetsDir, profile.showWitnessWasm),
     );
     this.showMultiCalculators.set(credentialCount, calculator);
+    return calculator;
+  }
+
+  private async getLinkMultiCalculator(
+    credentialCount: number,
+  ): Promise<WitnessCalculatorInstance> {
+    const existing = this.linkMultiCalculators.get(credentialCount);
+    if (existing) return existing;
+
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    const calculator = await this.loadCalculator(
+      join(this.assetsDir, profile.linkWitnessWasm),
+    );
+    this.linkMultiCalculators.set(credentialCount, calculator);
     return calculator;
   }
 }

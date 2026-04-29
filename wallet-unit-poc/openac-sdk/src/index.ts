@@ -9,6 +9,7 @@ import type {
   VerificationResult,
   VerifyingKeys,
   KeySet,
+  PreparedMultiKeySet,
   SerializedKeySet,
   SerializedProof,
   PrecomputeRequest,
@@ -18,6 +19,9 @@ import type {
   PreparedMultiCredential,
   PreparedMultiShowProof,
   PreparedMultiShowRequest,
+  PreparedMultiPresentationProof,
+  PreparedMultiPresentationRequest,
+  PreparedMultiVerifyingKeys,
   PrecomputedMultiCredential,
   PresentRequest,
   PresentMultiRequest,
@@ -102,17 +106,19 @@ export class OpenAC {
     baseUrl: string,
     vcSize: VcSize,
     credentialCount: number,
-  ): Promise<KeySet> {
+  ): Promise<PreparedMultiKeySet> {
     const keys = await this.bridge.loadPreparedMultiKeys(
       baseUrl,
       vcSize,
       credentialCount,
     );
-    return createKeySet(
+    return createPreparedMultiKeySet(
       keys.preparePk,
       keys.prepareVk,
       keys.showPk,
       keys.showVk,
+      keys.linkPk,
+      keys.linkVk,
     );
   }
 
@@ -153,6 +159,12 @@ export class OpenAC {
     return this.prover.precomputePreparedMultiShow(request);
   }
 
+  async presentPreparedMulti(
+    request: PreparedMultiPresentationRequest,
+  ): Promise<PreparedMultiPresentationProof> {
+    return this.prover.presentPreparedMulti(request);
+  }
+
   async present(request: PresentRequest): Promise<PresentationProof> {
     return this.prover.present(request);
   }
@@ -172,6 +184,13 @@ export class OpenAC {
       proof.prepareInstance,
       proof.showInstance,
     );
+  }
+
+  async verifyPreparedMulti(
+    proof: PreparedMultiPresentationProof,
+    keys: PreparedMultiVerifyingKeys,
+  ): Promise<VerificationResult> {
+    return this.verifier.verifyPreparedMulti(proof, keys);
   }
 
   async createProof(request: ProofRequest): Promise<ProofResult> {
@@ -233,6 +252,43 @@ function createKeySet(
   };
 }
 
+function createPreparedMultiKeySet(
+  prepareProvingKey: Uint8Array,
+  prepareVerifyingKey: Uint8Array,
+  showProvingKey: Uint8Array,
+  showVerifyingKey: Uint8Array,
+  linkProvingKey: Uint8Array,
+  linkVerifyingKey: Uint8Array,
+): PreparedMultiKeySet {
+  return {
+    prepareProvingKey,
+    prepareVerifyingKey,
+    showProvingKey,
+    showVerifyingKey,
+    linkProvingKey,
+    linkVerifyingKey,
+
+    verifyingKeys(): VerifyingKeys {
+      return { prepareVerifyingKey, showVerifyingKey };
+    },
+
+    preparedMultiVerifyingKeys(): PreparedMultiVerifyingKeys {
+      return { prepareVerifyingKey, showVerifyingKey, linkVerifyingKey };
+    },
+
+    serialize() {
+      return {
+        prepareProvingKey,
+        prepareVerifyingKey,
+        showProvingKey,
+        showVerifyingKey,
+        linkProvingKey,
+        linkVerifyingKey,
+      };
+    },
+  };
+}
+
 // Re-exports
 export { Credential } from "./credential.js";
 export {
@@ -277,7 +333,9 @@ export type {
   VerificationResult,
   VerifyingKeys,
   KeySet,
+  PreparedMultiKeySet,
   SerializedKeySet,
+  SerializedPreparedMultiKeySet,
   SerializedProof,
   SerializedProofJSON,
   DisclosedClaim,
@@ -301,6 +359,9 @@ export type {
   PreparedMultiCredential,
   PreparedMultiShowProof,
   PreparedMultiShowRequest,
+  PreparedMultiPresentationProof,
+  PreparedMultiPresentationRequest,
+  PreparedMultiVerifyingKeys,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,

@@ -30,8 +30,8 @@ use ecdsa_spartan2::{
     },
     prove_circuit, prove_circuit_with_pk, reblind, reblind_with_loaded_data, run_circuit,
     save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
-    verify_circuit_with_loaded_data, PathConfig, Prepare2VcCircuit, PrepareCircuit, Show2VcCircuit,
-    ShowCircuit, ShowMultiVcCircuit, E,
+    verify_circuit_with_loaded_data, PathConfig, Prepare2VcCircuit, PrepareCircuit,
+    PreparedMultiLinkCircuit, Show2VcCircuit, ShowCircuit, ShowMultiVcCircuit, E,
 };
 use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
@@ -498,6 +498,9 @@ enum CircuitKind {
     Show2Vc,
     Show3Vc,
     Show4Vc,
+    Link2Vc,
+    Link3Vc,
+    Link4Vc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -556,6 +559,9 @@ fn main() {
         CircuitKind::Show2Vc => execute_show_2vc(command.action, command.options),
         CircuitKind::Show3Vc => execute_show_multi_vc(3, command.action, command.options),
         CircuitKind::Show4Vc => execute_show_multi_vc(4, command.action, command.options),
+        CircuitKind::Link2Vc => execute_link_multi_vc(2, command.action, command.options),
+        CircuitKind::Link3Vc => execute_link_multi_vc(3, command.action, command.options),
+        CircuitKind::Link4Vc => execute_link_multi_vc(4, command.action, command.options),
     }
 }
 
@@ -878,6 +884,83 @@ fn execute_show_multi_vc(credential_count: usize, action: CircuitAction, options
     }
 }
 
+fn execute_link_multi_vc(credential_count: usize, action: CircuitAction, options: CommandOptions) {
+    let path_config = options.path_config();
+    let circuit_stem = format!("link_{}vc", credential_count);
+
+    match action {
+        CircuitAction::Setup => {
+            info!(size = %path_config.circuit_size, credential_count, "Setting up prepared multi-VC Link");
+            let circuit = PreparedMultiLinkCircuit::new(
+                credential_count,
+                path_config.clone(),
+                options.input.clone(),
+            );
+            setup_circuit_keys(
+                circuit,
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.key_path(&format!("{}_verifying.key", circuit_stem)),
+            );
+        }
+        CircuitAction::Run => {
+            let circuit =
+                PreparedMultiLinkCircuit::new(credential_count, path_config, options.input.clone());
+            info!(credential_count, "Running prepared multi-VC Link circuit");
+            run_circuit(circuit);
+        }
+        CircuitAction::Prove => {
+            let circuit = PreparedMultiLinkCircuit::new(
+                credential_count,
+                path_config.clone(),
+                options.input.clone(),
+            );
+            info!(credential_count, "Proving prepared multi-VC Link circuit");
+            prove_circuit(
+                circuit,
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.artifact_path(&format!("{}_instance.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_witness.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+            );
+        }
+        CircuitAction::Verify => {
+            info!(credential_count, "Verifying prepared multi-VC Link proof");
+            let public_values = verify_circuit(
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+                path_config.key_path(&format!("{}_verifying.key", circuit_stem)),
+            );
+            if !public_values.is_empty() {
+                println!(
+                    "linkResult: {:?} ({} public values)",
+                    public_values[0],
+                    public_values.len()
+                );
+            }
+        }
+        CircuitAction::Reblind => {
+            info!(credential_count, "Reblinding prepared multi-VC Link proof");
+            reblind(
+                path_config.key_path(&format!("{}_proving.key", circuit_stem)),
+                path_config.artifact_path(&format!("{}_instance.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_witness.bin", circuit_stem)),
+                path_config.artifact_path(&format!("{}_proof.bin", circuit_stem)),
+                path_config.artifact_path(SHARED_BLINDS),
+            );
+        }
+        CircuitAction::GenerateSharedBlinds => {
+            eprintln!("Error: generate_shared_blinds is only supported for Prepare circuits");
+            process::exit(1);
+        }
+        CircuitAction::Benchmark => {
+            eprintln!(
+                "Error: benchmark is not implemented for link-{}vc yet",
+                credential_count
+            );
+            process::exit(1);
+        }
+    }
+}
+
 fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
     if args.is_empty() {
         return Err("No command provided".into());
@@ -894,6 +977,9 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         "show-2vc" | "show_2vc" => parse_circuit_command(CircuitKind::Show2Vc, &args[1..]),
         "show-3vc" | "show_3vc" => parse_circuit_command(CircuitKind::Show3Vc, &args[1..]),
         "show-4vc" | "show_4vc" => parse_circuit_command(CircuitKind::Show4Vc, &args[1..]),
+        "link-2vc" | "link_2vc" => parse_circuit_command(CircuitKind::Link2Vc, &args[1..]),
+        "link-3vc" | "link_3vc" => parse_circuit_command(CircuitKind::Link3Vc, &args[1..]),
+        "link-4vc" | "link_4vc" => parse_circuit_command(CircuitKind::Link4Vc, &args[1..]),
         "benchmark" => Ok(ParsedCommand {
             circuit: CircuitKind::Prepare,
             action: CircuitAction::Benchmark,
@@ -1118,7 +1204,7 @@ fn parse_options_size_only(args: &[String]) -> Result<CommandOptions, String> {
 fn print_usage() {
     eprintln!(
         "Usage:
-  ecdsa-spartan2 <prepare|show|prepare-2vc|show-2vc> [run|setup|prove|verify|reblind|benchmark] [options]
+  ecdsa-spartan2 <prepare|show|prepare-2vc|show-2vc|show-3vc|show-4vc|link-2vc|link-3vc|link-4vc> [run|setup|prove|verify|reblind|benchmark] [options]
   ecdsa-spartan2 benchmark      [options]
   ecdsa-spartan2 benchmark-all
 
@@ -1131,6 +1217,9 @@ Commands:
   show-2vc    <action>  Run action on two-credential Show circuit
   show-3vc    <action>  Run action on three-credential prepared-claims Show circuit
   show-4vc    <action>  Run action on four-credential prepared-claims Show circuit
+  link-2vc    <action>  Run action on two-credential prepared-claims Link circuit
+  link-3vc    <action>  Run action on three-credential prepared-claims Link circuit
+  link-4vc    <action>  Run action on four-credential prepared-claims Link circuit
 
 Actions:
   run               Run circuit (setup, prove, verify)
@@ -1158,6 +1247,9 @@ Typical workflow:
   cargo run --release -- show-2vc    setup --size 1k
   cargo run --release -- show-3vc    setup --size 1k
   cargo run --release -- show-4vc    setup --size 1k
+  cargo run --release -- link-2vc    setup --size 1k
+  cargo run --release -- link-3vc    setup --size 1k
+  cargo run --release -- link-4vc    setup --size 1k
   # repeat for 2k, 4k, 8k
 
   # 4. Benchmark all sizes (fast: prove+reblind+verify only)

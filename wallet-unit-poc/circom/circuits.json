@@ -73,6 +73,24 @@
     "params": [4, 2, 2, 8, 64],
     "pubs": ["deviceKeyX", "deviceKeyY"]
   },
+  "link_2vc": {
+    "file": "prepared_multi_link",
+    "template": "PreparedMultiLink",
+    "params": [4],
+    "pubs": ["expectedDeviceKeyX", "expectedDeviceKeyY", "expectedClaimValues"]
+  },
+  "link_3vc": {
+    "file": "prepared_multi_link",
+    "template": "PreparedMultiLink",
+    "params": [6],
+    "pubs": ["expectedDeviceKeyX", "expectedDeviceKeyY", "expectedClaimValues"]
+  },
+  "link_4vc": {
+    "file": "prepared_multi_link",
+    "template": "PreparedMultiLink",
+    "params": [8],
+    "pubs": ["expectedDeviceKeyX", "expectedDeviceKeyY", "expectedClaimValues"]
+  },
   "ecdsa": {
     "file": "ecdsa/ecdsa",
     "template": "ECDSA",

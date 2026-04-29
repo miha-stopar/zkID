@@ -47,6 +47,9 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show_2vc)");
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show_3vc)");
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show_4vc)");
+    println!("cargo::rustc-check-cfg=cfg(has_circuit_link_2vc)");
+    println!("cargo::rustc-check-cfg=cfg(has_circuit_link_3vc)");
+    println!("cargo::rustc-check-cfg=cfg(has_circuit_link_4vc)");
     println!("cargo::rustc-check-cfg=cfg(has_circuit_show)");
     let show_cpp_file = circuits_dir.join("show.cpp");
     if show_cpp_file.exists() {
@@ -66,6 +69,17 @@ fn main() {
             println!("cargo:rustc-cfg=has_circuit_show_{}vc", count);
             println!(
                 "cargo:warning=Found compiled circuit: show_{}vc.cpp — enabling {}VC Show support",
+                count, count
+            );
+        }
+    }
+
+    for count in [2, 3, 4] {
+        let link_cpp_file = circuits_dir.join(format!("link_{}vc.cpp", count));
+        if link_cpp_file.exists() {
+            println!("cargo:rustc-cfg=has_circuit_link_{}vc", count);
+            println!(
+                "cargo:warning=Found compiled circuit: link_{}vc.cpp — enabling {}VC Link support",
                 count, count
             );
         }

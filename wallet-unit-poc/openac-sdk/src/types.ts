@@ -141,11 +141,27 @@ export interface KeySet {
   serialize(): SerializedKeySet;
 }
 
+export interface PreparedMultiKeySet extends KeySet {
+  linkProvingKey: Uint8Array;
+  linkVerifyingKey: Uint8Array;
+  preparedMultiVerifyingKeys(): PreparedMultiVerifyingKeys;
+  serialize(): SerializedPreparedMultiKeySet;
+}
+
 export interface SerializedKeySet {
   prepareProvingKey: Uint8Array;
   prepareVerifyingKey: Uint8Array;
   showProvingKey: Uint8Array;
   showVerifyingKey: Uint8Array;
+}
+
+export interface SerializedPreparedMultiKeySet extends SerializedKeySet {
+  linkProvingKey: Uint8Array;
+  linkVerifyingKey: Uint8Array;
+}
+
+export interface PreparedMultiVerifyingKeys extends VerifyingKeys {
+  linkVerifyingKey: Uint8Array;
 }
 
 export interface SerializedProofJSON {
@@ -381,6 +397,34 @@ export interface PreparedMultiShowProof {
   showWitness: Uint8Array;
   publicValues: ProofPublicValues;
   timing: PreparedMultiShowTiming;
+}
+
+export interface PreparedMultiPresentationRequest {
+  prepared: PreparedMultiCredential;
+  verifierNonce: string;
+  devicePrivateKey: EcdsaPrivateKey;
+  keys: PreparedMultiKeySet;
+  showParams?: ShowCircuitParams;
+  showInputOptions?: import("./inputs/show-input-builder.js").ShowInputOptions;
+}
+
+export interface PreparedMultiPresentationProof {
+  kind: MultiCredentialCircuitKind;
+  credentialCount: number;
+  claimsPerCredential: number;
+  prepareProofs: Uint8Array[];
+  prepareInstances: Uint8Array[];
+  linkProof: Uint8Array;
+  linkInstance: Uint8Array;
+  showProof: Uint8Array;
+  showInstance: Uint8Array;
+  publicValues: ProofPublicValues;
+  timing: PresentationTiming;
+}
+
+export interface VerifyPreparedMultiRequest {
+  proof: PreparedMultiPresentationProof;
+  keys: PreparedMultiVerifyingKeys;
 }
 
 export interface PrecomputedMultiCredential {

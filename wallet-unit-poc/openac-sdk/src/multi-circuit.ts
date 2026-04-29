@@ -42,9 +42,13 @@ export interface PreparedMultiShowCircuitProfile {
   credentialCount: number;
   kind: MultiCredentialCircuitKind;
   showCircuitStem: string;
+  linkCircuitStem: string;
   showCliName: string;
+  linkCliName: string;
   showWasmExport: WasmPrecomputeExportName;
+  linkWasmExport: WasmPrecomputeExportName;
   showWitnessWasm: string;
+  linkWitnessWasm: string;
   defaultShowParams: ShowCircuitParams;
 }
 
@@ -83,9 +87,13 @@ const PREPARED_MULTI_SHOW_PROFILES = new Map<number, PreparedMultiShowCircuitPro
       credentialCount,
       kind: `multi-vc-${credentialCount}` as MultiCredentialCircuitKind,
       showCircuitStem: `show_${credentialCount}vc`,
+      linkCircuitStem: `link_${credentialCount}vc`,
       showCliName: `show-${credentialCount}vc`,
+      linkCliName: `link-${credentialCount}vc`,
       showWasmExport: `precompute_show_${credentialCount}vc_from_witness`,
+      linkWasmExport: `precompute_link_${credentialCount}vc_from_witness`,
       showWitnessWasm: `show_${credentialCount}vc.wasm`,
+      linkWitnessWasm: `link_${credentialCount}vc.wasm`,
       defaultShowParams: showParamsForCredentialCount(credentialCount),
     },
   ]),
@@ -128,7 +136,7 @@ export function multiCredentialKeyFilenames(
 export function preparedMultiKeyFilenames(
   credentialCount: number,
   vcSize: VcSize,
-): [string, string, string, string] {
+): [string, string, string, string, string, string] {
   const profile = getPreparedMultiShowCircuitProfile(credentialCount);
   const prefix = `${vcSize}_`;
   return [
@@ -136,6 +144,8 @@ export function preparedMultiKeyFilenames(
     `${prefix}prepare_verifying.key`,
     `${prefix}${profile.showCircuitStem}_proving.key`,
     `${prefix}${profile.showCircuitStem}_verifying.key`,
+    `${prefix}${profile.linkCircuitStem}_proving.key`,
+    `${prefix}${profile.linkCircuitStem}_verifying.key`,
   ];
 }
 

@@ -278,7 +278,9 @@ describe("Input Builders via SDK", () => {
     expect(profile.kind).toBe("multi-vc-3");
     expect(profile.credentialCount).toBe(3);
     expect(profile.showCliName).toBe("show-3vc");
+    expect(profile.linkCliName).toBe("link-3vc");
     expect(profile.showWasmExport).toBe("precompute_show_3vc_from_witness");
+    expect(profile.linkWasmExport).toBe("precompute_link_3vc_from_witness");
     expect(profile.defaultShowParams.nClaims).toBe(
       DEFAULT_SHOW_PARAMS.nClaims * 3,
     );
@@ -291,6 +293,8 @@ describe("Input Builders via SDK", () => {
       "1k_prepare_verifying.key",
       "1k_show_3vc_proving.key",
       "1k_show_3vc_verifying.key",
+      "1k_link_3vc_proving.key",
+      "1k_link_3vc_verifying.key",
     ]);
   });
 

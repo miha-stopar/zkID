@@ -113,6 +113,18 @@ pub fn parse_show_inputs(
     parse_inputs(json_value, field_defs)
 }
 
+pub fn parse_prepared_multi_link_inputs(
+    json_value: &Value,
+) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
+    let field_defs: &[(&str, FieldParser)] = &[
+        ("expectedDeviceKeyX", FieldParser::BigIntScalar),
+        ("expectedDeviceKeyY", FieldParser::BigIntScalar),
+        ("expectedClaimValues", FieldParser::BigIntArray),
+    ];
+
+    parse_inputs(json_value, field_defs)
+}
+
 /// Convert a single BigInt to Scalar
 pub fn bigint_to_scalar(bigint_val: BigInt) -> Result<Scalar, SynthesisError> {
     let bytes = bigint_val.to_bytes_le().1;
@@ -553,5 +565,44 @@ pub fn calculate_show_witness_indices(n_claims: usize) -> ShowWitnessLayout {
         device_key_y_index: 3,
         claim_values_start: 7,
         claim_values_len: n_claims,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PreparedMultiLinkWitnessLayout {
+    pub link_result_index: usize,
+    pub linked_device_key_x_index: usize,
+    pub linked_device_key_y_index: usize,
+    pub linked_claim_values_start: usize,
+    pub linked_claim_values_len: usize,
+    pub expected_device_key_x_index: usize,
+    pub expected_device_key_y_index: usize,
+    pub expected_claim_values_start: usize,
+    pub expected_claim_values_len: usize,
+}
+
+impl PreparedMultiLinkWitnessLayout {
+    pub fn num_public(&self) -> usize {
+        1 + 2 + self.linked_claim_values_len + 2 + self.expected_claim_values_len
+    }
+}
+
+pub fn calculate_prepared_multi_link_witness_indices(
+    n_claims: usize,
+) -> PreparedMultiLinkWitnessLayout {
+    let linked_claim_values_start = 4;
+    let expected_device_key_x_index = linked_claim_values_start + n_claims;
+    let expected_device_key_y_index = expected_device_key_x_index + 1;
+    let expected_claim_values_start = expected_device_key_y_index + 1;
+    PreparedMultiLinkWitnessLayout {
+        link_result_index: 1,
+        linked_device_key_x_index: 2,
+        linked_device_key_y_index: 3,
+        linked_claim_values_start,
+        linked_claim_values_len: n_claims,
+        expected_device_key_x_index,
+        expected_device_key_y_index,
+        expected_claim_values_start,
+        expected_claim_values_len: n_claims,
     }
 }

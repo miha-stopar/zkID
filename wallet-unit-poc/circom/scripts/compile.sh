@@ -1,7 +1,7 @@
 #!/bin/bash
 
 usage() {
-  echo "Usage: $0 {jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|prepare_2vc|prepare_2vc_1k|prepare_2vc_2k|prepare_2vc_4k|prepare_2vc_8k|show_2vc|show_3vc|show_4vc|ecdsa|all}"
+  echo "Usage: $0 {jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|prepare_2vc|prepare_2vc_1k|prepare_2vc_2k|prepare_2vc_4k|prepare_2vc_8k|show_2vc|show_3vc|show_4vc|link_2vc|link_3vc|link_4vc|ecdsa|all}"
   echo "  jwt:    Compile the default JWT circuit."
   echo "  jwt_1k: Compile JWT circuit (1KB - maxMsg=1280)."
   echo "  jwt_2k: Compile JWT circuit (2KB - maxMsg=2048)."
@@ -10,6 +10,7 @@ usage() {
   echo "  show:   Compile Show circuit."
   echo "  prepare_2vc*: Compile legacy two-credential Prepare circuit variants."
   echo "  show_*vc: Compile multi-credential Show circuit variants."
+  echo "  link_*vc: Compile prepared multi-credential linker circuit variants."
   echo "  ecdsa:  Compile ECDSA circuit."
   echo "  all:    Compile everything — single-VC, 2VC, show, and ecdsa circuits."
   exit 1
@@ -39,7 +40,7 @@ compile_circuit() {
 }
 
 case "$1" in
-  jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|prepare_2vc|prepare_2vc_1k|prepare_2vc_2k|prepare_2vc_4k|prepare_2vc_8k|show_2vc|show_3vc|show_4vc|ecdsa)
+  jwt|jwt_1k|jwt_2k|jwt_4k|jwt_8k|show|prepare_2vc|prepare_2vc_1k|prepare_2vc_2k|prepare_2vc_4k|prepare_2vc_8k|show_2vc|show_3vc|show_4vc|link_2vc|link_3vc|link_4vc|ecdsa)
     compile_circuit "$1"
     ;;
   all)
@@ -58,6 +59,9 @@ case "$1" in
     compile_circuit show_2vc
     compile_circuit show_3vc
     compile_circuit show_4vc
+    compile_circuit link_2vc
+    compile_circuit link_3vc
+    compile_circuit link_4vc
     compile_circuit ecdsa
     echo "All circuits compiled successfully."
     ;;

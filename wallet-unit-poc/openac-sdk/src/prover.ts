@@ -12,7 +12,7 @@ import {
   getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
-import { circuitInputsToJson, base64Encode } from "./utils.js";
+import { circuitInputsToJson, base64Encode, base64urlToBigInt } from "./utils.js";
 import { InputError, ProofError } from "./errors.js";
 import { base64Decode } from "./utils.js";
 import {
@@ -34,6 +34,8 @@ import type {
   PreparedMultiCredential,
   PreparedMultiShowProof,
   PreparedMultiShowRequest,
+  PreparedMultiPresentationProof,
+  PreparedMultiPresentationRequest,
   PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
@@ -345,6 +347,116 @@ export class Prover {
       timing: {
         showWitnessMs: timing.showWitnessMs ?? 0,
         showProveMs: timing.showProveMs ?? 0,
+        totalMs: timing.totalMs ?? 0,
+      },
+    };
+  }
+
+  async presentPreparedMulti(
+    request: PreparedMultiPresentationRequest,
+  ): Promise<PreparedMultiPresentationProof> {
+    const startTime = performance.now();
+    const timing: Partial<PresentationTiming> = {};
+
+    const { prepared, verifierNonce, devicePrivateKey, keys } = request;
+    const profile = getPreparedMultiShowCircuitProfile(prepared.credentialCount);
+    if (prepared.kind !== profile.kind) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `Prepared bundle kind ${prepared.kind} does not match ${profile.kind}`,
+      );
+    }
+
+    const showParams = request.showParams ?? profile.defaultShowParams;
+    this.assertPreparedShowParams(prepared, showParams, request.showInputOptions?.normalizedClaimValues);
+
+    const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
+    const showInputs = buildShowCircuitInputs(
+      showParams,
+      verifierNonce,
+      deviceSignature,
+      prepared.deviceKey,
+      {
+        ...request.showInputOptions,
+        normalizedClaimValues: prepared.normalizedClaimValues,
+      },
+    );
+    const showInputsJson = circuitInputsToJson(showInputs);
+
+    let t1 = performance.now();
+    const [showWitnessBytes, linkWitnessBytes] = await Promise.all([
+      this.generateShowMultiWitness(profile.credentialCount, showInputsJson),
+      this.generateLinkMultiWitness(
+        profile.credentialCount,
+        circuitInputsToJson(this.buildPreparedMultiLinkInputs(prepared)),
+      ),
+    ]);
+    timing.showWitnessMs = performance.now() - t1;
+
+    t1 = performance.now();
+    const [showResult, linkResult] = await Promise.all([
+      this.bridge.precomputeShowMultiFromWitness(
+        profile.credentialCount,
+        keys.showProvingKey,
+        showWitnessBytes,
+      ),
+      this.bridge.precomputeLinkMultiFromWitness(
+        profile.credentialCount,
+        keys.linkProvingKey,
+        linkWitnessBytes,
+      ),
+    ]);
+    timing.showProveMs = performance.now() - t1;
+
+    t1 = performance.now();
+    const [linkedPresentation, prepareResults] = await Promise.all([
+      this.bridge.present(
+        keys.linkProvingKey,
+        linkResult.instance,
+        linkResult.witness,
+        keys.showProvingKey,
+        showResult.instance,
+        showResult.witness,
+      ),
+      Promise.all(
+        prepared.precomputedCredentials.map((precomputed) =>
+          this.bridge.reblindFromWitness(
+            keys.prepareProvingKey,
+            precomputed.prepareInstance,
+            precomputed.prepareWitness,
+          ),
+        ),
+      ),
+    ]);
+    timing.presentMs = performance.now() - t1;
+    timing.totalMs = performance.now() - startTime;
+
+    const showWitness = await this.calculateShowMultiWitness(
+      profile.credentialCount,
+      showInputsJson,
+    );
+    const publicValues: ProofPublicValues = {
+      expressionResult: showWitness[1] === 1n,
+      deviceKeyX: showInputs.deviceKeyX.toString(),
+      deviceKeyY: showInputs.deviceKeyY.toString(),
+      normalizedClaimValues: prepared.normalizedClaimValues,
+    };
+
+    return {
+      kind: profile.kind,
+      credentialCount: profile.credentialCount,
+      claimsPerCredential: prepared.claimsPerCredential,
+      prepareProofs: prepareResults.map((result) => result.proof),
+      prepareInstances: prepareResults.map((result) => result.instance),
+      linkProof: linkedPresentation.prepareProof,
+      linkInstance: linkedPresentation.prepareInstance,
+      showProof: linkedPresentation.showProof,
+      showInstance: linkedPresentation.showInstance,
+      publicValues,
+      timing: {
+        showWitnessMs: timing.showWitnessMs ?? 0,
+        showProveMs: timing.showProveMs ?? 0,
+        presentMs: timing.presentMs ?? 0,
         totalMs: timing.totalMs ?? 0,
       },
     };
@@ -741,6 +853,23 @@ export class Prover {
     );
   }
 
+  private async generateLinkMultiWitness(
+    credentialCount: number,
+    inputsJson: string,
+  ): Promise<Uint8Array> {
+    if (!this.witnessCalculator) {
+      throw new ProofError(
+        "WITNESS_GENERATION_FAILED",
+        "WitnessCalculator not initialized. Call initWitnessCalculator() first or provide it in constructor.",
+      );
+    }
+    const inputs = this.parseJsonToBigInt(inputsJson);
+    return await this.witnessCalculator.calculateLinkMultiWitnessWtns(
+      credentialCount,
+      inputs,
+    );
+  }
+
   private async calculateJwtWitness(inputsJson: string): Promise<bigint[]> {
     if (!this.witnessCalculator) {
       throw new ProofError(
@@ -797,6 +926,23 @@ export class Prover {
     );
   }
 
+  private async calculateLinkMultiWitness(
+    credentialCount: number,
+    inputsJson: string,
+  ): Promise<bigint[]> {
+    if (!this.witnessCalculator) {
+      throw new ProofError(
+        "WITNESS_GENERATION_FAILED",
+        "WitnessCalculator not initialized.",
+      );
+    }
+    const inputs = this.parseJsonToBigInt(inputsJson);
+    return await this.witnessCalculator.calculateLinkMultiWitness(
+      credentialCount,
+      inputs,
+    );
+  }
+
   private parseJsonToBigInt(json: string): Record<string, unknown> {
     return JSON.parse(json, (_key, value) => {
       if (typeof value === "string" && /^-?\d+$/.test(value)) {
@@ -819,6 +965,41 @@ export class Prover {
       input.decodeFlags ?? this.defaultDecodeFlags(credential),
       input.claimFormats ?? this.defaultClaimFormats(credential),
     );
+  }
+
+  private assertPreparedShowParams(
+    prepared: PreparedMultiCredential,
+    showParams: ShowCircuitParams,
+    suppliedClaimValues?: bigint[],
+  ): void {
+    if (showParams.nClaims !== prepared.normalizedClaimValues.length) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        `showParams.nClaims (${showParams.nClaims}) must match prepared normalized claim count (${prepared.normalizedClaimValues.length})`,
+      );
+    }
+
+    if (
+      suppliedClaimValues &&
+      !this.bigintArraysEqual(suppliedClaimValues, prepared.normalizedClaimValues)
+    ) {
+      throw new InputError(
+        "PARAMS_EXCEEDED",
+        "showInputOptions.normalizedClaimValues must match the prepared normalized claims",
+      );
+    }
+  }
+
+  private buildPreparedMultiLinkInputs(
+    prepared: PreparedMultiCredential,
+  ): Record<string, bigint | bigint[]> {
+    const deviceKeyX = base64urlToBigInt(prepared.deviceKey.x);
+    const deviceKeyY = base64urlToBigInt(prepared.deviceKey.y);
+    return {
+      expectedDeviceKeyX: deviceKeyX,
+      expectedDeviceKeyY: deviceKeyY,
+      expectedClaimValues: prepared.normalizedClaimValues,
+    };
   }
 
   private defaultDecodeFlags(credential: Credential): number[] {

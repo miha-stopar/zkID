@@ -82,7 +82,7 @@ const prepared = await openac.precomputePreparedMulti({
 
 // prepared.normalizedClaimValues is a flattened namespace:
 // VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1, VC2 claim 0, VC2 claim 1.
-const showPrecompute = await openac.precomputePreparedMultiShow({
+const proof = await openac.presentPreparedMulti({
   prepared,
   verifierNonce: "challenge-123",
   devicePrivateKey: "0xabcdef...",
@@ -94,9 +94,14 @@ const showPrecompute = await openac.precomputePreparedMultiShow({
     ],
   },
 });
+
+const result = await openac.verifyPreparedMulti(
+  proof,
+  keys.preparedMultiVerifyingKeys(),
+);
 ```
 
-`precomputePreparedMulti` runs the normal single-credential Prepare circuit once per credential and bundles the saved normalized claims. `precomputePreparedMultiShow` can build the Show proof over 2, 3, or 4 prepared credentials. Full verifier-accepted multi-credential presentation still needs a prover/verifier linker for several Prepare commitments to one Show proof.
+`precomputePreparedMulti` runs the normal single-credential Prepare circuit once per credential and bundles the saved normalized claims. `presentPreparedMulti` verifies predicates over 2, 3, or 4 prepared credentials and includes a linker proof that binds the multi-credential Show proof to the verified Prepare outputs.
 
 ### One-Shot (no precompute/present split)
 
@@ -142,12 +147,14 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 | `OpenAC.init(config?)` | Load WASM prover |
 | `openac.loadKeysFromUrl(url, size)` | Fetch keys (`'1k'`/`'2k'`/`'4k'`/`'8k'`) |
 | `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch legacy combined-Prepare multi-credential keys |
-| `openac.loadPreparedMultiKeysFromUrl(url, size, credentialCount)` | Fetch single-Prepare keys plus prepared multi-Show keys |
+| `openac.loadPreparedMultiKeysFromUrl(url, size, credentialCount)` | Fetch single-Prepare, prepared multi-Show, and linker keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
 | `openac.precompute(req)` | Prove JWT validity (cache this) |
 | `openac.present(req)` | Prove predicates + device key |
 | `openac.precomputePreparedMulti(req)` | Prepare each credential once and cache flattened claims for multi-credential Show |
 | `openac.precomputePreparedMultiShow(req)` | Prove predicates over flattened prepared claims for 2VC/3VC/4VC Show |
+| `openac.presentPreparedMulti(req)` | Present linked Prepare proofs plus one multi-credential Show proof |
+| `openac.verifyPreparedMulti(proof, keys)` | Verify a prepared multi-credential presentation |
 | `openac.precomputeMulti(req)` | Legacy combined-Prepare multi-credential path |
 | `openac.presentMulti(req)` | Legacy combined-Prepare multi-credential presentation |
 | `openac.verify(proof, keys)` | Verify proof |

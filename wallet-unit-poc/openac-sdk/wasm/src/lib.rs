@@ -3,7 +3,7 @@ use wasm_bindgen::prelude::*;
 
 use ecdsa_spartan2::{
     parse_witness, prove_circuit_in_memory, reblind_in_memory, Prepare2VcCircuit, PrepareCircuit,
-    Show2VcCircuit, ShowCircuit, ShowMultiVcCircuit,
+    PreparedMultiLinkCircuit, Show2VcCircuit, ShowCircuit, ShowMultiVcCircuit,
 };
 use ecdsa_spartan2::{Scalar, E};
 
@@ -340,6 +340,68 @@ fn precompute_show_multi_vc_from_witness(
         .map_err(|e| JsError::new(&format!("JS conversion failed: {}", e)))
 }
 
+#[wasm_bindgen]
+pub fn precompute_link_2vc_from_witness(
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    precompute_link_multi_vc_from_witness(2, "2VC", pk_bytes, witness_wtns_bytes)
+}
+
+#[wasm_bindgen]
+pub fn precompute_link_3vc_from_witness(
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    precompute_link_multi_vc_from_witness(3, "3VC", pk_bytes, witness_wtns_bytes)
+}
+
+#[wasm_bindgen]
+pub fn precompute_link_4vc_from_witness(
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    precompute_link_multi_vc_from_witness(4, "4VC", pk_bytes, witness_wtns_bytes)
+}
+
+fn precompute_link_multi_vc_from_witness(
+    credential_count: usize,
+    label: &str,
+    pk_bytes: &[u8],
+    witness_wtns_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    let pk: <R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey = bincode::deserialize(pk_bytes)
+        .map_err(|e| JsError::new(&format!("{} Link PK deserialization failed: {}", label, e)))?;
+
+    let witness_scalars = parse_witness(witness_wtns_bytes)
+        .map_err(|e| JsError::new(&format!("{} Link witness parsing failed: {:?}", label, e)))?;
+
+    let circuit = PreparedMultiLinkCircuit::with_witness(credential_count, witness_scalars);
+    let (proof, instance, witness) = prove_circuit_in_memory(circuit, &pk)
+        .map_err(|e| JsError::new(&format!("{} Link proving failed: {:?}", label, e)))?;
+
+    let result = PrecomputeResult {
+        proof: bincode::serialize(&proof).map_err(|e| {
+            JsError::new(&format!("{} Link proof serialization failed: {}", label, e))
+        })?,
+        instance: bincode::serialize(&instance).map_err(|e| {
+            JsError::new(&format!(
+                "{} Link instance serialization failed: {}",
+                label, e
+            ))
+        })?,
+        witness: bincode::serialize(&witness).map_err(|e| {
+            JsError::new(&format!(
+                "{} Link witness serialization failed: {}",
+                label, e
+            ))
+        })?,
+    };
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsError::new(&format!("JS conversion failed: {}", e)))
+}
+
 // ==========================================================================
 // 3. PRESENT — Reblind both pre-proved circuits with shared randomness
 // ==========================================================================
@@ -424,6 +486,39 @@ pub fn present(
             .map_err(|e| JsError::new(&format!("Show proof serialization failed: {}", e)))?,
         show_instance: bincode::serialize(&reblinded_show_instance)
             .map_err(|e| JsError::new(&format!("Show instance serialization failed: {}", e)))?,
+    };
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsError::new(&format!("JS conversion failed: {}", e)))
+}
+
+#[wasm_bindgen]
+pub fn reblind_from_witness(
+    pk_bytes: &[u8],
+    instance_bytes: &[u8],
+    witness_bytes: &[u8],
+) -> Result<JsValue, JsError> {
+    let pk: <R1CSSNARK<E> as R1CSSNARKTrait<E>>::ProverKey = bincode::deserialize(pk_bytes)
+        .map_err(|e| JsError::new(&format!("PK deserialization failed: {}", e)))?;
+    let instance: spartan2::r1cs::SplitR1CSInstance<E> = bincode::deserialize(instance_bytes)
+        .map_err(|e| JsError::new(&format!("Instance deserialization failed: {}", e)))?;
+    let witness: spartan2::r1cs::R1CSWitness<E> = bincode::deserialize(witness_bytes)
+        .map_err(|e| JsError::new(&format!("Witness deserialization failed: {}", e)))?;
+
+    let shared_blinds: Vec<Scalar> = (0..instance.num_shared_rows())
+        .map(|_| Scalar::random(&mut rand::thread_rng()))
+        .collect();
+
+    let (proof, instance, witness) = reblind_in_memory(&pk, instance, witness, &shared_blinds)
+        .map_err(|e| JsError::new(&format!("Reblind failed: {:?}", e)))?;
+
+    let result = PrecomputeResult {
+        proof: bincode::serialize(&proof)
+            .map_err(|e| JsError::new(&format!("Proof serialization failed: {}", e)))?,
+        instance: bincode::serialize(&instance)
+            .map_err(|e| JsError::new(&format!("Instance serialization failed: {}", e)))?,
+        witness: bincode::serialize(&witness)
+            .map_err(|e| JsError::new(&format!("Witness serialization failed: {}", e)))?,
     };
 
     serde_wasm_bindgen::to_value(&result)
