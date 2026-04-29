@@ -12,7 +12,14 @@ import {
   getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
-import type { KeySet, VerifyingKeys, SerializedKeySet } from "./types.js";
+import type {
+  KeySet,
+  PreparedMultiKeySet,
+  PreparedMultiVerifyingKeys,
+  SerializedKeySet,
+  SerializedPreparedMultiKeySet,
+  VerifyingKeys,
+} from "./types.js";
 
 export interface NativeVerificationResult {
   valid: boolean;
@@ -442,6 +449,49 @@ export class NativeBackend {
     };
   }
 
+  async loadPreparedMultiKeys(
+    credentialCount = 2,
+  ): Promise<PreparedMultiKeySet> {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    const [ppk, pvk, spk, svk, lpk, lvk] = await Promise.all([
+      this.loadArtifact("prepare_proving.key"),
+      this.loadArtifact("prepare_verifying.key"),
+      this.loadArtifact(`${profile.showCircuitStem}_proving.key`),
+      this.loadArtifact(`${profile.showCircuitStem}_verifying.key`),
+      this.loadArtifact(`${profile.linkCircuitStem}_proving.key`),
+      this.loadArtifact(`${profile.linkCircuitStem}_verifying.key`),
+    ]);
+
+    return {
+      prepareProvingKey: ppk,
+      prepareVerifyingKey: pvk,
+      showProvingKey: spk,
+      showVerifyingKey: svk,
+      linkProvingKey: lpk,
+      linkVerifyingKey: lvk,
+      verifyingKeys(): VerifyingKeys {
+        return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
+      },
+      preparedMultiVerifyingKeys(): PreparedMultiVerifyingKeys {
+        return {
+          prepareVerifyingKey: pvk,
+          showVerifyingKey: svk,
+          linkVerifyingKey: lvk,
+        };
+      },
+      serialize(): SerializedPreparedMultiKeySet {
+        return {
+          prepareProvingKey: ppk,
+          prepareVerifyingKey: pvk,
+          showProvingKey: spk,
+          showVerifyingKey: svk,
+          linkProvingKey: lpk,
+          linkVerifyingKey: lvk,
+        };
+      },
+    };
+  }
+
   async loadProofs(): Promise<{
     prepareProof: Uint8Array;
     showProof: Uint8Array;
@@ -527,6 +577,15 @@ export class NativeBackend {
     return (
       this.artifactExists(`${profile.prepareCircuitStem}_proving.key`) &&
       this.artifactExists(`${profile.showCircuitStem}_proving.key`)
+    );
+  }
+
+  hasPreparedMultiKeys(credentialCount = 2): boolean {
+    const profile = getPreparedMultiShowCircuitProfile(credentialCount);
+    return (
+      this.artifactExists("prepare_proving.key") &&
+      this.artifactExists(`${profile.showCircuitStem}_proving.key`) &&
+      this.artifactExists(`${profile.linkCircuitStem}_proving.key`)
     );
   }
 
