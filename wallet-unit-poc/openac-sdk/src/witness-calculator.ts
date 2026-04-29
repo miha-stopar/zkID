@@ -1,3 +1,4 @@
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -6,7 +7,12 @@ import {
   getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
-import type { JwtCircuitInputs, Prepare2VcCircuitInputs, ShowCircuitInputs } from "./types.js";
+import type {
+  JwtCircuitInputs,
+  JwtCircuitParams,
+  Prepare2VcCircuitInputs,
+  ShowCircuitInputs,
+} from "./types.js";
 
 // Circom witness calculators accept any object with string keys
 type CircuitInput = Record<string, unknown>;
@@ -23,21 +29,19 @@ type WitnessCalculatorBuilder = (
 ) => Promise<WitnessCalculatorInstance>;
 
 export class WitnessCalculator {
-  private jwtCalculator: WitnessCalculatorInstance | null = null;
+  private jwtCalculators = new Map<string, WitnessCalculatorInstance>();
   private showCalculator: WitnessCalculatorInstance | null = null;
   private prepareMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private showMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private linkMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private builder: WitnessCalculatorBuilder | null = null;
 
-  private jwtWasmPath: string;
   private showWasmPath: string;
   private assetsDir: string;
 
   constructor(assetsDir?: string) {
     const defaultAssetsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "assets");
     this.assetsDir = assetsDir ?? defaultAssetsDir;
-    this.jwtWasmPath = join(this.assetsDir, "jwt.wasm");
     this.showWasmPath = join(this.assetsDir, "show.wasm");
   }
 
@@ -78,11 +82,12 @@ export class WitnessCalculator {
     return value as WitnessCalculatorBuilder;
   }
 
-  async calculateJwtWitness(inputs: JwtCircuitInputs | CircuitInput): Promise<bigint[]> {
-    if (!this.jwtCalculator) {
-      this.jwtCalculator = await this.loadCalculator(this.jwtWasmPath);
-    }
-    return await this.jwtCalculator.calculateWitness(inputs as CircuitInput, true);
+  async calculateJwtWitness(
+    inputs: JwtCircuitInputs | CircuitInput,
+    params?: JwtCircuitParams,
+  ): Promise<bigint[]> {
+    const calculator = await this.getJwtCalculator(params);
+    return await calculator.calculateWitness(inputs as CircuitInput, true);
   }
 
   async calculateShowWitness(inputs: ShowCircuitInputs | CircuitInput): Promise<bigint[]> {
@@ -116,11 +121,12 @@ export class WitnessCalculator {
     return await calculator.calculateWitness(inputs as CircuitInput, true);
   }
 
-  async calculateJwtWitnessWtns(inputs: JwtCircuitInputs | CircuitInput): Promise<Uint8Array> {
-    if (!this.jwtCalculator) {
-      this.jwtCalculator = await this.loadCalculator(this.jwtWasmPath);
-    }
-    return await this.jwtCalculator.calculateWTNSBin(inputs as CircuitInput, true);
+  async calculateJwtWitnessWtns(
+    inputs: JwtCircuitInputs | CircuitInput,
+    params?: JwtCircuitParams,
+  ): Promise<Uint8Array> {
+    const calculator = await this.getJwtCalculator(params);
+    return await calculator.calculateWTNSBin(inputs as CircuitInput, true);
   }
 
   async calculateShowWitnessWtns(inputs: ShowCircuitInputs | CircuitInput): Promise<Uint8Array> {
@@ -170,6 +176,31 @@ export class WitnessCalculator {
     return await calculator.calculateWTNSBin(inputs, true);
   }
 
+  private async getJwtCalculator(
+    params?: JwtCircuitParams,
+  ): Promise<WitnessCalculatorInstance> {
+    const wasmPath = this.jwtWitnessWasmPath(params);
+    const existing = this.jwtCalculators.get(wasmPath);
+    if (existing) return existing;
+
+    const calculator = await this.loadCalculator(wasmPath);
+    this.jwtCalculators.set(wasmPath, calculator);
+    return calculator;
+  }
+
+  private jwtWitnessWasmPath(params?: JwtCircuitParams): string {
+    const name = jwtWitnessWasmName(params);
+    const candidates = name === "jwt.wasm"
+      ? [join(this.assetsDir, name)]
+      : [
+          join(this.assetsDir, name),
+          join(this.assetsDir, name.replace(".wasm", ""), name),
+        ];
+
+    const existing = candidates.find((candidate) => existsSync(candidate));
+    return existing ?? candidates[0]!;
+  }
+
   private async getPrepareMultiCalculator(
     credentialCount: number,
   ): Promise<WitnessCalculatorInstance> {
@@ -210,5 +241,30 @@ export class WitnessCalculator {
     );
     this.linkMultiCalculators.set(credentialCount, calculator);
     return calculator;
+  }
+}
+
+export function jwtWitnessWasmName(params?: JwtCircuitParams): string {
+  if (!params) return "jwt.wasm";
+
+  const key = [
+    params.maxMessageLength,
+    params.maxB64PayloadLength,
+    params.maxMatches,
+    params.maxSubstringLength,
+    params.maxClaimLength,
+  ].join(":");
+
+  switch (key) {
+    case "1280:960:4:50:128":
+      return "jwt_1k.wasm";
+    case "2048:2000:4:50:128":
+      return "jwt_2k.wasm";
+    case "4096:4000:4:50:128":
+      return "jwt_4k.wasm";
+    case "8192:8000:4:50:128":
+      return "jwt_8k.wasm";
+    default:
+      return "jwt.wasm";
   }
 }

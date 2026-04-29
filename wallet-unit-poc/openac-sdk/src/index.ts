@@ -2,6 +2,7 @@ import { WasmBridge, VcSize } from "./wasm-bridge.js";
 import { WitnessCalculator } from "./witness-calculator.js";
 import { Prover } from "./prover.js";
 import { Verifier } from "./verifier.js";
+import { jwtParamsForVcSize } from "./multi-circuit.js";
 import type {
   OpenACConfig,
   ProofRequest,
@@ -27,6 +28,7 @@ import type {
   PresentRequest,
   PresentMultiRequest,
   PresentationProof,
+  JwtCircuitParams,
 } from "./types.js";
 
 export class OpenAC {
@@ -82,6 +84,7 @@ export class OpenAC {
       keys.prepareVk,
       keys.showPk,
       keys.showVk,
+      jwtParamsForVcSize(vcSize),
     );
   }
 
@@ -120,6 +123,7 @@ export class OpenAC {
       keys.showVk,
       keys.linkPk,
       keys.linkVk,
+      jwtParamsForVcSize(vcSize),
     );
   }
 
@@ -129,6 +133,7 @@ export class OpenAC {
       data.prepareVerifyingKey,
       data.showProvingKey,
       data.showVerifyingKey,
+      data.jwtParams,
     );
   }
 
@@ -142,6 +147,7 @@ export class OpenAC {
       data.showVerifyingKey,
       data.linkProvingKey,
       data.linkVerifyingKey,
+      data.jwtParams,
     );
   }
 
@@ -244,12 +250,14 @@ function createKeySet(
   prepareVerifyingKey: Uint8Array,
   showProvingKey: Uint8Array,
   showVerifyingKey: Uint8Array,
+  jwtParams?: JwtCircuitParams,
 ): KeySet {
   return {
     prepareProvingKey,
     prepareVerifyingKey,
     showProvingKey,
     showVerifyingKey,
+    jwtParams,
 
     verifyingKeys(): VerifyingKeys {
       return { prepareVerifyingKey, showVerifyingKey };
@@ -261,6 +269,7 @@ function createKeySet(
         prepareVerifyingKey,
         showProvingKey,
         showVerifyingKey,
+        jwtParams,
       };
     },
   };
@@ -273,6 +282,7 @@ function createPreparedMultiKeySet(
   showVerifyingKey: Uint8Array,
   linkProvingKey: Uint8Array,
   linkVerifyingKey: Uint8Array,
+  jwtParams?: JwtCircuitParams,
 ): PreparedMultiKeySet {
   return {
     prepareProvingKey,
@@ -281,6 +291,7 @@ function createPreparedMultiKeySet(
     showVerifyingKey,
     linkProvingKey,
     linkVerifyingKey,
+    jwtParams,
 
     verifyingKeys(): VerifyingKeys {
       return { prepareVerifyingKey, showVerifyingKey };
@@ -298,6 +309,7 @@ function createPreparedMultiKeySet(
         showVerifyingKey,
         linkProvingKey,
         linkVerifyingKey,
+        jwtParams,
       };
     },
   };
@@ -401,6 +413,7 @@ export {
   multiCredentialKeyFilenames,
   preparedMultiKeyFilenames,
   preparedMultiShowKeyFilenames,
+  jwtParamsForVcSize,
 } from "./multi-circuit.js";
 
 export {

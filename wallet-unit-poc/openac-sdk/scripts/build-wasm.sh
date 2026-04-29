@@ -54,6 +54,15 @@ if [ -d "$CIRCOM_BUILD" ]; then
         echo "  Copied jwt.wasm (witness calculator)"
     fi
 
+    for size in 1k 2k 4k 8k; do
+        if [ -f "$CIRCOM_BUILD/jwt_${size}/jwt_${size}_js/jwt_${size}.wasm" ]; then
+            cp "$CIRCOM_BUILD/jwt_${size}/jwt_${size}_js/jwt_${size}.wasm" "$ASSETS_DIR/jwt_${size}.wasm"
+            mkdir -p "$ASSETS_DIR/jwt_${size}"
+            cp "$CIRCOM_BUILD/jwt_${size}/jwt_${size}_js/jwt_${size}.wasm" "$ASSETS_DIR/jwt_${size}/jwt_${size}.wasm"
+            echo "  Copied jwt_${size}.wasm (witness calculator)"
+        fi
+    done
+
     if [ -f "$CIRCOM_BUILD/show/show_js/show.wasm" ]; then
         cp "$CIRCOM_BUILD/show/show_js/show.wasm" "$ASSETS_DIR/show.wasm"
         echo "  Copied show.wasm (witness calculator)"

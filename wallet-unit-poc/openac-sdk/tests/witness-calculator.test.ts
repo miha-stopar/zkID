@@ -2,7 +2,14 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { WitnessCalculator } from "../src/witness-calculator.js";
+import {
+  jwtWitnessWasmName,
+  WitnessCalculator,
+} from "../src/witness-calculator.js";
+import {
+  DEFAULT_JWT_1K_PARAMS,
+  DEFAULT_JWT_PARAMS,
+} from "../src/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ASSETS_DIR = join(__dirname, "..", "assets");
@@ -79,6 +86,18 @@ describe("WitnessCalculator", () => {
   });
 
   describe("JWT circuit witness generation", () => {
+    it("selects the JWT witness WASM from the circuit params", () => {
+      expect(jwtWitnessWasmName(DEFAULT_JWT_PARAMS)).toBe("jwt.wasm");
+      expect(jwtWitnessWasmName(DEFAULT_JWT_1K_PARAMS)).toBe("jwt_1k.wasm");
+      expect(jwtWitnessWasmName({
+        maxMessageLength: 2048,
+        maxB64PayloadLength: 2000,
+        maxMatches: 4,
+        maxSubstringLength: 50,
+        maxClaimLength: 128,
+      })).toBe("jwt_2k.wasm");
+    });
+
     it("should generate a valid witness from default jwt inputs", async () => {
       const inputJson = JSON.parse(
         await readFile(join(INPUTS_DIR, "jwt", "default.json"), "utf-8"),

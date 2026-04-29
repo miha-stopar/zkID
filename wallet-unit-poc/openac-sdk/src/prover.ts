@@ -105,7 +105,8 @@ export class Prover {
     const decodeFlags = request.decodeFlags ?? this.defaultDecodeFlags(credential);
     const additionalMatches =
       request.additionalMatches ?? credential.disclosureHashes;
-    const jwtParams: JwtCircuitParams = request.jwtParams ?? DEFAULT_JWT_PARAMS;
+    const jwtParams: JwtCircuitParams =
+      request.jwtParams ?? request.keys.jwtParams ?? DEFAULT_JWT_PARAMS;
 
     const claimFormats = request.claimFormats ?? this.defaultClaimFormats(credential);
 
@@ -121,7 +122,10 @@ export class Prover {
     timing.buildInputsMs = performance.now() - t1;
 
     t1 = performance.now();
-    const prepareWitnessBytes = await this.generatePrepareWitness(jwtInputsJson);
+    const prepareWitnessBytes = await this.generatePrepareWitness(
+      jwtInputsJson,
+      jwtParams,
+    );
     timing.prepareWitnessMs = performance.now() - t1;
 
     t1 = performance.now();
@@ -132,7 +136,10 @@ export class Prover {
     timing.prepareProveMs = performance.now() - t1;
     timing.totalMs = performance.now() - startTime;
 
-    const prepareWitness = await this.calculateJwtWitness(jwtInputsJson);
+    const prepareWitness = await this.calculateJwtWitness(
+      jwtInputsJson,
+      jwtParams,
+    );
     const claimsPerCredential = jwtParams.maxMatches - 2;
     const normalizedClaimValues = prepareWitness.slice(
       1,
@@ -661,13 +668,8 @@ export class Prover {
     const additionalMatches =
       request.additionalMatches ?? credential.disclosureHashes;
 
-    const jwtParams: JwtCircuitParams = request.jwtParams ?? {
-      maxMessageLength: 1920,
-      maxB64PayloadLength: 1900,
-      maxMatches: 4,
-      maxSubstringLength: 50,
-      maxClaimLength: 128,
-    };
+    const jwtParams: JwtCircuitParams =
+      request.jwtParams ?? request.keys?.jwtParams ?? DEFAULT_JWT_PARAMS;
 
     const showParams: ShowCircuitParams = request.showParams ?? DEFAULT_SHOW_PARAMS;
 
@@ -693,7 +695,10 @@ export class Prover {
     }
 
     let t1 = performance.now();
-    const prepareWitnessBytes = await this.generatePrepareWitness(jwtInputsJson);
+    const prepareWitnessBytes = await this.generatePrepareWitness(
+      jwtInputsJson,
+      jwtParams,
+    );
     const prepareResult = await this.bridge.precomputeFromWitness(keys.prepareProvingKey, prepareWitnessBytes);
     timing.prepareProveMs = performance.now() - t1;
 
@@ -747,7 +752,10 @@ export class Prover {
     const maxClaims = jwtParams.maxMatches - 2;
 
     if (this.witnessCalculator) {
-      const jwtWitness = await this.calculateJwtWitness(jwtInputsJson);
+      const jwtWitness = await this.calculateJwtWitness(
+        jwtInputsJson,
+        jwtParams,
+      );
       normalizedClaimValues = jwtWitness.slice(1, 1 + maxClaims);
 
       const showWitness = await this.calculateShowWitness(showInputsJson);
@@ -798,6 +806,7 @@ export class Prover {
 
   private async generatePrepareWitness(
     inputsJson: string,
+    params?: JwtCircuitParams,
   ): Promise<Uint8Array> {
     if (!this.witnessCalculator) {
       throw new ProofError(
@@ -806,7 +815,7 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculateJwtWitnessWtns(inputs);
+    return await this.witnessCalculator.calculateJwtWitnessWtns(inputs, params);
   }
 
   private async generateShowWitness(inputsJson: string): Promise<Uint8Array> {
@@ -871,7 +880,10 @@ export class Prover {
     );
   }
 
-  private async calculateJwtWitness(inputsJson: string): Promise<bigint[]> {
+  private async calculateJwtWitness(
+    inputsJson: string,
+    params?: JwtCircuitParams,
+  ): Promise<bigint[]> {
     if (!this.witnessCalculator) {
       throw new ProofError(
         "WITNESS_GENERATION_FAILED",
@@ -879,7 +891,7 @@ export class Prover {
       );
     }
     const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculateJwtWitness(inputs);
+    return await this.witnessCalculator.calculateJwtWitness(inputs, params);
   }
 
   private async calculateShowWitness(inputsJson: string): Promise<bigint[]> {

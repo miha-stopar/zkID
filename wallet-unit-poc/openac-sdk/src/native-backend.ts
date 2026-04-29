@@ -11,6 +11,7 @@ import { SetupError, ProofError } from "./errors.js";
 import {
   getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
+  jwtParamsForVcSize,
 } from "./multi-circuit.js";
 import type {
   KeySet,
@@ -411,17 +412,25 @@ export class NativeBackend {
       this.loadArtifact("show_proving.key"),
       this.loadArtifact("show_verifying.key"),
     ]);
+    const jwtParams = jwtParamsForVcSize(this.vcSize);
 
     return {
       prepareProvingKey: ppk,
       prepareVerifyingKey: pvk,
       showProvingKey: spk,
       showVerifyingKey: svk,
+      jwtParams,
       verifyingKeys(): VerifyingKeys {
         return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
       },
       serialize(): SerializedKeySet {
-        return { prepareProvingKey: ppk, prepareVerifyingKey: pvk, showProvingKey: spk, showVerifyingKey: svk };
+        return {
+          prepareProvingKey: ppk,
+          prepareVerifyingKey: pvk,
+          showProvingKey: spk,
+          showVerifyingKey: svk,
+          jwtParams,
+        };
       },
     };
   }
@@ -434,17 +443,25 @@ export class NativeBackend {
       this.loadArtifact(`${profile.showCircuitStem}_proving.key`),
       this.loadArtifact(`${profile.showCircuitStem}_verifying.key`),
     ]);
+    const jwtParams = jwtParamsForVcSize(this.vcSize);
 
     return {
       prepareProvingKey: ppk,
       prepareVerifyingKey: pvk,
       showProvingKey: spk,
       showVerifyingKey: svk,
+      jwtParams,
       verifyingKeys(): VerifyingKeys {
         return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
       },
       serialize(): SerializedKeySet {
-        return { prepareProvingKey: ppk, prepareVerifyingKey: pvk, showProvingKey: spk, showVerifyingKey: svk };
+        return {
+          prepareProvingKey: ppk,
+          prepareVerifyingKey: pvk,
+          showProvingKey: spk,
+          showVerifyingKey: svk,
+          jwtParams,
+        };
       },
     };
   }
@@ -461,6 +478,7 @@ export class NativeBackend {
       this.loadArtifact(`${profile.linkCircuitStem}_proving.key`),
       this.loadArtifact(`${profile.linkCircuitStem}_verifying.key`),
     ]);
+    const jwtParams = jwtParamsForVcSize(this.vcSize);
 
     return {
       prepareProvingKey: ppk,
@@ -469,6 +487,7 @@ export class NativeBackend {
       showVerifyingKey: svk,
       linkProvingKey: lpk,
       linkVerifyingKey: lvk,
+      jwtParams,
       verifyingKeys(): VerifyingKeys {
         return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
       },
@@ -487,6 +506,7 @@ export class NativeBackend {
           showVerifyingKey: svk,
           linkProvingKey: lpk,
           linkVerifyingKey: lvk,
+          jwtParams,
         };
       },
     };

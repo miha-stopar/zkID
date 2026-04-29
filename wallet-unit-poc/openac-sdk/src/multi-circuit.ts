@@ -1,5 +1,6 @@
 import { InputError } from "./errors.js";
 import {
+  DEFAULT_JWT_PARAMS,
   DEFAULT_JWT_1K_PARAMS,
   DEFAULT_SHOW_PARAMS,
 } from "./types.js";
@@ -159,6 +160,31 @@ export function preparedMultiShowKeyFilenames(
     `${prefix}${profile.showCircuitStem}_proving.key`,
     `${prefix}${profile.showCircuitStem}_verifying.key`,
   ];
+}
+
+export function jwtParamsForVcSize(vcSize: VcSize): JwtCircuitParams {
+  switch (vcSize) {
+    case "1k":
+      return DEFAULT_JWT_1K_PARAMS;
+    case "2k":
+      return {
+        ...DEFAULT_JWT_PARAMS,
+        maxMessageLength: 2048,
+        maxB64PayloadLength: 2000,
+      };
+    case "4k":
+      return {
+        ...DEFAULT_JWT_PARAMS,
+        maxMessageLength: 4096,
+        maxB64PayloadLength: 4000,
+      };
+    case "8k":
+      return {
+        ...DEFAULT_JWT_PARAMS,
+        maxMessageLength: 8192,
+        maxB64PayloadLength: 8000,
+      };
+  }
 }
 
 function showParamsForCredentialCount(credentialCount: number): ShowCircuitParams {

@@ -137,6 +137,7 @@ export interface KeySet {
   prepareVerifyingKey: Uint8Array;
   showProvingKey: Uint8Array;
   showVerifyingKey: Uint8Array;
+  jwtParams?: JwtCircuitParams;
   verifyingKeys(): VerifyingKeys;
   serialize(): SerializedKeySet;
 }
@@ -153,6 +154,7 @@ export interface SerializedKeySet {
   prepareVerifyingKey: Uint8Array;
   showProvingKey: Uint8Array;
   showVerifyingKey: Uint8Array;
+  jwtParams?: JwtCircuitParams;
 }
 
 export interface SerializedPreparedMultiKeySet extends SerializedKeySet {
