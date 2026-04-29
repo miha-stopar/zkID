@@ -177,6 +177,25 @@ export interface SerializedProofJSON {
   };
 }
 
+export interface SerializedPreparedMultiPresentationProofJSON {
+  version: string;
+  kind: MultiCredentialCircuitKind;
+  credentialCount: number;
+  claimsPerCredential: number;
+  prepareProofs: string[]; // base64
+  prepareInstances: string[]; // base64
+  linkProof: string; // base64
+  linkInstance: string; // base64
+  showProof: string; // base64
+  showInstance: string; // base64
+  publicValues: {
+    expressionResult: boolean;
+    deviceKeyX: string;
+    deviceKeyY: string;
+    normalizedClaimValues: string[];
+  };
+}
+
 export type SerializedProof = Uint8Array;
 
 export type ErrorCode =
@@ -420,6 +439,9 @@ export interface PreparedMultiPresentationProof {
   showInstance: Uint8Array;
   publicValues: ProofPublicValues;
   timing: PresentationTiming;
+  serialize(): Uint8Array;
+  toBase64(): string;
+  toJSON(): SerializedPreparedMultiPresentationProofJSON;
 }
 
 export interface VerifyPreparedMultiRequest {

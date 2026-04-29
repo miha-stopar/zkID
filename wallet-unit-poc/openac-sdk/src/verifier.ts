@@ -1,5 +1,6 @@
 import { WasmBridge } from "./wasm-bridge.js";
 import { deserializeProofBundle } from "./prover.js";
+import { getPreparedMultiShowCircuitProfile } from "./multi-circuit.js";
 import type {
   PreparedMultiPresentationProof,
   PreparedMultiVerifyingKeys,
@@ -126,73 +127,110 @@ export class Verifier {
   ): Promise<VerificationResult> {
     const startTime = performance.now();
 
+    let profile;
+    try {
+      profile = getPreparedMultiShowCircuitProfile(proof.credentialCount);
+    } catch (error) {
+      return this.invalidResult(startTime, error instanceof Error ? error.message : String(error));
+    }
+
+    if (proof.kind !== profile.kind) {
+      return this.invalidResult(
+        startTime,
+        "Prepared multi proof kind does not match credential count",
+      );
+    }
+
+    if (
+      !Number.isInteger(proof.claimsPerCredential) ||
+      proof.claimsPerCredential <= 0
+    ) {
+      return this.invalidResult(
+        startTime,
+        "Prepared multi proof has an invalid claimsPerCredential value",
+      );
+    }
+
     if (
       proof.prepareProofs.length !== proof.credentialCount ||
       proof.prepareInstances.length !== proof.credentialCount
     ) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Prepared multi proof has an invalid Prepare proof count",
-      };
+      return this.invalidResult(
+        startTime,
+        "Prepared multi proof has an invalid Prepare proof count",
+      );
     }
 
     const preparePublicValues: string[][] = [];
     for (const prepareProof of proof.prepareProofs) {
-      const result = await this.bridge.verifySingle(
-        prepareProof,
-        keys.prepareVerifyingKey,
-      );
+      let result;
+      try {
+        result = await this.bridge.verifySingle(
+          prepareProof,
+          keys.prepareVerifyingKey,
+        );
+      } catch (error) {
+        return this.invalidResult(
+          startTime,
+          `Prepare proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       if (!result.valid) {
-        return {
-          valid: false,
-          expressionResult: null,
-          deviceKey: null,
-          verifyMs: performance.now() - startTime,
-          error: "Prepare proof verification failed",
-        };
+        return this.invalidResult(startTime, "Prepare proof verification failed");
       }
       preparePublicValues.push(result.publicValues);
     }
 
-    const linkResult = await this.bridge.verifySingle(
-      proof.linkProof,
-      keys.linkVerifyingKey,
-    );
+    let linkResult;
+    try {
+      linkResult = await this.bridge.verifySingle(
+        proof.linkProof,
+        keys.linkVerifyingKey,
+      );
+    } catch (error) {
+      return this.invalidResult(
+        startTime,
+        `Link proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     if (!linkResult.valid) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Link proof verification failed",
-      };
+      return this.invalidResult(startTime, "Link proof verification failed");
     }
 
-    const showResult = await this.bridge.verifySingle(
-      proof.showProof,
-      keys.showVerifyingKey,
-    );
+    let showResult;
+    try {
+      showResult = await this.bridge.verifySingle(
+        proof.showProof,
+        keys.showVerifyingKey,
+      );
+    } catch (error) {
+      return this.invalidResult(
+        startTime,
+        `Show proof verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     if (!showResult.valid) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Show proof verification failed",
-      };
+      return this.invalidResult(startTime, "Show proof verification failed");
     }
 
-    if (!this.bridge.compareCommWShared(proof.linkInstance, proof.showInstance)) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Shared commitment mismatch: link and show proofs do not share the same private claims",
-      };
+    let sharedCommitmentsMatch;
+    try {
+      sharedCommitmentsMatch = this.bridge.compareCommWShared(
+        proof.linkInstance,
+        proof.showInstance,
+      );
+    } catch (error) {
+      return this.invalidResult(
+        startTime,
+        `Shared commitment comparison failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    if (!sharedCommitmentsMatch) {
+      return this.invalidResult(
+        startTime,
+        "Shared commitment mismatch: link and show proofs do not share the same private claims",
+      );
     }
 
     let expectedPublic: string[];
@@ -202,35 +240,33 @@ export class Verifier {
         proof.claimsPerCredential,
       );
     } catch (error) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      return this.invalidResult(
+        startTime,
+        error instanceof Error ? error.message : String(error),
+      );
     }
     const actualPublic = linkResult.publicValues;
     if (actualPublic.length !== expectedPublic.length) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Link proof public value count mismatch",
-      };
+      return this.invalidResult(
+        startTime,
+        "Link proof public value count mismatch",
+      );
     }
 
     for (let i = 0; i < expectedPublic.length; i++) {
       if (normalizeScalar(actualPublic[i] ?? "") !== normalizeScalar(expectedPublic[i] ?? "")) {
-        return {
-          valid: false,
-          expressionResult: null,
-          deviceKey: null,
-          verifyMs: performance.now() - startTime,
-          error: `Link proof public value mismatch at index ${i}`,
-        };
+        return this.invalidResult(
+          startTime,
+          `Link proof public value mismatch at index ${i}`,
+        );
       }
+    }
+
+    if (showResult.publicValues.length < 3) {
+      return this.invalidResult(
+        startTime,
+        "Show proof public value count mismatch",
+      );
     }
 
     if (
@@ -239,13 +275,10 @@ export class Verifier {
       normalizeScalar(showResult.publicValues[2] ?? "") !==
         normalizeScalar(expectedPublic[2] ?? "")
     ) {
-      return {
-        valid: false,
-        expressionResult: null,
-        deviceKey: null,
-        verifyMs: performance.now() - startTime,
-        error: "Show proof device key does not match prepared credentials",
-      };
+      return this.invalidResult(
+        startTime,
+        "Show proof device key does not match prepared credentials",
+      );
     }
 
     return {
@@ -259,16 +292,40 @@ export class Verifier {
     };
   }
 
+  private invalidResult(startTime: number, error: string): VerificationResult {
+    return {
+      valid: false,
+      expressionResult: null,
+      deviceKey: null,
+      verifyMs: performance.now() - startTime,
+      error,
+    };
+  }
+
   private expectedLinkPublicValues(
     preparePublicValues: string[][],
     claimsPerCredential: number,
   ): string[] {
+    if (preparePublicValues.length === 0) {
+      throw new Error("Prepared multi proof has no Prepare public values");
+    }
+    const preparePublicValueCount = claimsPerCredential + 2;
     const first = preparePublicValues[0] ?? [];
+    if (first.length !== preparePublicValueCount) {
+      throw new Error(
+        `Prepare proof 0 public value count mismatch: expected ${preparePublicValueCount}, got ${first.length}`,
+      );
+    }
     const deviceKeyX = first[claimsPerCredential] ?? "";
     const deviceKeyY = first[claimsPerCredential + 1] ?? "";
     const flattenedClaims: string[] = [];
 
     for (const [index, publicValues] of preparePublicValues.entries()) {
+      if (publicValues.length !== preparePublicValueCount) {
+        throw new Error(
+          `Prepare proof ${index} public value count mismatch: expected ${preparePublicValueCount}, got ${publicValues.length}`,
+        );
+      }
       const x = publicValues[claimsPerCredential] ?? "";
       const y = publicValues[claimsPerCredential + 1] ?? "";
       if (

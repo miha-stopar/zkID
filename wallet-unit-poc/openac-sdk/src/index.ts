@@ -11,6 +11,7 @@ import type {
   KeySet,
   PreparedMultiKeySet,
   SerializedKeySet,
+  SerializedPreparedMultiKeySet,
   SerializedProof,
   PrecomputeRequest,
   PrecomputeMultiRequest,
@@ -128,6 +129,19 @@ export class OpenAC {
       data.prepareVerifyingKey,
       data.showProvingKey,
       data.showVerifyingKey,
+    );
+  }
+
+  async loadPreparedMultiKeys(
+    data: SerializedPreparedMultiKeySet,
+  ): Promise<PreparedMultiKeySet> {
+    return createPreparedMultiKeySet(
+      data.prepareProvingKey,
+      data.prepareVerifyingKey,
+      data.showProvingKey,
+      data.showVerifyingKey,
+      data.linkProvingKey,
+      data.linkVerifyingKey,
     );
   }
 
@@ -295,6 +309,7 @@ export {
   Prover,
   deserializePrecomputed,
   deserializePreparedMulti,
+  deserializePreparedMultiPresentation,
   deserializePrecomputedMulti,
   bundlePrecomputedCredentials,
 } from "./prover.js";
@@ -338,6 +353,7 @@ export type {
   SerializedPreparedMultiKeySet,
   SerializedProof,
   SerializedProofJSON,
+  SerializedPreparedMultiPresentationProofJSON,
   DisclosedClaim,
   EcdsaPublicKey,
   EcdsaPrivateKey,

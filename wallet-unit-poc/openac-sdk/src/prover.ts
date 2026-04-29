@@ -45,6 +45,7 @@ import type {
   SerializedPrecomputedCredentialJSON,
   SerializedPreparedMultiCredentialJSON,
   SerializedPrecomputedMultiCredentialJSON,
+  SerializedPreparedMultiPresentationProofJSON,
   EcdsaPublicKey,
   MultiCredentialInput,
   ClaimNamespaceEntry,
@@ -442,7 +443,7 @@ export class Prover {
       normalizedClaimValues: prepared.normalizedClaimValues,
     };
 
-    return {
+    return buildPreparedMultiPresentationProof({
       kind: profile.kind,
       credentialCount: profile.credentialCount,
       claimsPerCredential: prepared.claimsPerCredential,
@@ -459,7 +460,7 @@ export class Prover {
         presentMs: timing.presentMs ?? 0,
         totalMs: timing.totalMs ?? 0,
       },
-    };
+    });
   }
 
   async present(request: PresentRequest): Promise<PresentationProof> {
@@ -1241,6 +1242,53 @@ export class Prover {
   }
 }
 
+type PreparedMultiPresentationProofData = Omit<
+  PreparedMultiPresentationProof,
+  "serialize" | "toBase64" | "toJSON"
+>;
+
+function buildPreparedMultiPresentationProof(
+  data: PreparedMultiPresentationProofData,
+): PreparedMultiPresentationProof {
+  const result: PreparedMultiPresentationProof = {
+    ...data,
+
+    serialize(): Uint8Array {
+      return serializePreparedMultiPresentationProof(result);
+    },
+
+    toBase64(): string {
+      return base64Encode(result.serialize());
+    },
+
+    toJSON(): SerializedPreparedMultiPresentationProofJSON {
+      return {
+        version: SDK_VERSION,
+        kind: result.kind,
+        credentialCount: result.credentialCount,
+        claimsPerCredential: result.claimsPerCredential,
+        prepareProofs: result.prepareProofs.map((proof) => base64Encode(proof)),
+        prepareInstances: result.prepareInstances.map((instance) =>
+          base64Encode(instance),
+        ),
+        linkProof: base64Encode(result.linkProof),
+        linkInstance: base64Encode(result.linkInstance),
+        showProof: base64Encode(result.showProof),
+        showInstance: base64Encode(result.showInstance),
+        publicValues: {
+          expressionResult: result.publicValues.expressionResult,
+          deviceKeyX: result.publicValues.deviceKeyX,
+          deviceKeyY: result.publicValues.deviceKeyY,
+          normalizedClaimValues: result.publicValues.normalizedClaimValues.map(
+            (value) => value.toString(),
+          ),
+        },
+      };
+    },
+  };
+  return result;
+}
+
 // Serialize a proof bundle into a single binary blob.
 // Format: [4 bytes: length][bytes] for each of: version, prepareProof, showProof, prepareInstance, showInstance
 function serializeProofBundle(result: ProofResult): Uint8Array {
@@ -1315,6 +1363,13 @@ function serializePrecomputedMulti(
   precomputed: PrecomputedMultiCredential,
 ): Uint8Array {
   const json = JSON.stringify(precomputed.toJSON());
+  return new TextEncoder().encode(json);
+}
+
+function serializePreparedMultiPresentationProof(
+  proof: PreparedMultiPresentationProof,
+): Uint8Array {
+  const json = JSON.stringify(proof.toJSON());
   return new TextEncoder().encode(json);
 }
 
@@ -1474,6 +1529,42 @@ export function deserializePreparedMulti(
     },
   };
   return result;
+}
+
+export function deserializePreparedMultiPresentation(
+  data: Uint8Array,
+): PreparedMultiPresentationProof {
+  const json: SerializedPreparedMultiPresentationProofJSON = JSON.parse(
+    new TextDecoder().decode(data),
+  );
+
+  return buildPreparedMultiPresentationProof({
+    kind: json.kind,
+    credentialCount: json.credentialCount,
+    claimsPerCredential: json.claimsPerCredential,
+    prepareProofs: json.prepareProofs.map((proof) => base64Decode(proof)),
+    prepareInstances: json.prepareInstances.map((instance) =>
+      base64Decode(instance),
+    ),
+    linkProof: base64Decode(json.linkProof),
+    linkInstance: base64Decode(json.linkInstance),
+    showProof: base64Decode(json.showProof),
+    showInstance: base64Decode(json.showInstance),
+    publicValues: {
+      expressionResult: json.publicValues.expressionResult,
+      deviceKeyX: json.publicValues.deviceKeyX,
+      deviceKeyY: json.publicValues.deviceKeyY,
+      normalizedClaimValues: (
+        json.publicValues.normalizedClaimValues ?? []
+      ).map((value) => BigInt(value)),
+    },
+    timing: {
+      showWitnessMs: 0,
+      showProveMs: 0,
+      presentMs: 0,
+      totalMs: 0,
+    },
+  });
 }
 
 export function deserializePrecomputedMulti(

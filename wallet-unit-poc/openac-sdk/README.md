@@ -66,7 +66,12 @@ result.deviceKey;        // { x: '0x...', y: '0x...' }
 ### Multiple Credentials
 
 ```typescript
-import { OpenAC, LogicToken, PredicateOp } from "openac-sdk";
+import {
+  OpenAC,
+  LogicToken,
+  PredicateOp,
+  deserializePreparedMultiPresentation,
+} from "openac-sdk";
 
 const openac = await OpenAC.init({ assetsDir: "./assets" });
 const keys = await openac.loadPreparedMultiKeysFromUrl("https://cdn.example/keys", "1k", 3);
@@ -95,8 +100,10 @@ const proof = await openac.presentPreparedMulti({
   },
 });
 
+const serializedProof = proof.serialize();
+const receivedProof = deserializePreparedMultiPresentation(serializedProof);
 const result = await openac.verifyPreparedMulti(
-  proof,
+  receivedProof,
   keys.preparedMultiVerifyingKeys(),
 );
 ```
@@ -149,6 +156,7 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 | `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch legacy combined-Prepare multi-credential keys |
 | `openac.loadPreparedMultiKeysFromUrl(url, size, credentialCount)` | Fetch single-Prepare, prepared multi-Show, and linker keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
+| `openac.loadPreparedMultiKeys(data)` | Load prepared multi-credential keys from bytes |
 | `openac.precompute(req)` | Prove JWT validity (cache this) |
 | `openac.present(req)` | Prove predicates + device key |
 | `openac.precomputePreparedMulti(req)` | Prepare each credential once and cache flattened claims for multi-credential Show |
@@ -164,6 +172,7 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 | Utility | |
 |---------|---|
 | `Credential.parse(jwt, disclosures)` | Parse SD-JWT |
+| `deserializePreparedMultiPresentation(bytes)` | Decode a serialized prepared multi-credential presentation |
 | `buildJwtCircuitInputs(...)` | Build Prepare circuit inputs |
 | `buildShowCircuitInputs(...)` | Build Show circuit inputs |
 | `signDeviceNonce(nonce, key)` | Sign verifier challenge |
@@ -187,6 +196,12 @@ cd ../ecdsa-spartan2
 cargo build --release
 cargo run --release -- prepare setup --size 1k --input ../circom/inputs/jwt/1k/default.json
 cargo run --release -- show setup --size 1k --input ../circom/inputs/show/default.json
+cargo run --release -- show-2vc setup --size 1k
+cargo run --release -- show-3vc setup --size 1k
+cargo run --release -- show-4vc setup --size 1k
+cargo run --release -- link-2vc setup --size 1k
+cargo run --release -- link-3vc setup --size 1k
+cargo run --release -- link-4vc setup --size 1k
 ```
 
 ### Key Sizes
