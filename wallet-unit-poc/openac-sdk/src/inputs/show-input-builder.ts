@@ -4,11 +4,19 @@ import { Field } from "@noble/curves/abstract/modular";
 
 import {
   base64urlToBigInt,
+  base64urlEncode,
   bytesToBigInt,
   P256_SCALAR_ORDER,
+  sha256HashString,
 } from "../utils.js";
 import { InputError } from "../errors.js";
-import type { ShowCircuitParams, ShowCircuitInputs, EcdsaPublicKey, EcdsaPrivateKey } from "../types.js";
+import type {
+  PreparedMultiChallengeRequest,
+  ShowCircuitParams,
+  ShowCircuitInputs,
+  EcdsaPublicKey,
+  EcdsaPrivateKey,
+} from "../types.js";
 
 const Fq = Field(BigInt("0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"));
 
@@ -59,6 +67,18 @@ export interface ShowInputOptions {
   logicExpression?: Array<{ type: number; value: number }>;
 }
 
+export interface ShowPolicyPublicInputs {
+  messageHash: bigint;
+  predicateLen: bigint;
+  predicateClaimRefs: bigint[];
+  predicateOps: bigint[];
+  predicateRhsIsRef: bigint[];
+  predicateRhsValues: bigint[];
+  tokenTypes: bigint[];
+  tokenValues: bigint[];
+  exprLen: bigint;
+}
+
 export function buildShowCircuitInputs(
   params: ShowCircuitParams,
   nonce: string,
@@ -90,19 +110,99 @@ export function buildShowCircuitInputs(
     throw new InputError("INVALID_SIGNATURE", "Device signature verification failed");
   }
 
-  // compute message hash mod scalar field order
+  const claimValues = buildClaimValues(params, options);
+  const policyInputs = buildShowPolicyPublicInputs(params, nonce, options);
+
+  return {
+    deviceKeyX,
+    deviceKeyY,
+    sig_r: sigDecoded.r,
+    sig_s_inverse: sigSInverse,
+    messageHash: policyInputs.messageHash,
+    predicateLen: policyInputs.predicateLen,
+    claimValues,
+    predicateClaimRefs: policyInputs.predicateClaimRefs,
+    predicateOps: policyInputs.predicateOps,
+    predicateRhsIsRef: policyInputs.predicateRhsIsRef,
+    predicateRhsValues: policyInputs.predicateRhsValues,
+    tokenTypes: policyInputs.tokenTypes,
+    tokenValues: policyInputs.tokenValues,
+    exprLen: policyInputs.exprLen,
+  };
+}
+
+export function buildShowPolicyPublicInputs(
+  params: ShowCircuitParams,
+  nonce: string,
+  options: ShowInputOptions = {},
+): ShowPolicyPublicInputs {
   const messageHash = sha256(new TextEncoder().encode(nonce));
   const messageHashBigInt = bytesToBigInt(messageHash);
   const messageHashModQ = messageHashBigInt % P256_SCALAR_ORDER;
+  const claimValues = buildClaimValues(params, options);
+  const policy = buildPolicyInputs(params, claimValues, options);
+  return {
+    messageHash: messageHashModQ,
+    ...policy,
+  };
+}
 
-  // Build claim values array
+export function buildShowPolicyPublicValues(
+  params: ShowCircuitParams,
+  nonce: string,
+  options: ShowInputOptions = {},
+): bigint[] {
+  const inputs = buildShowPolicyPublicInputs(params, nonce, options);
+  return [
+    inputs.messageHash,
+    inputs.predicateLen,
+    ...inputs.predicateClaimRefs,
+    ...inputs.predicateOps,
+    ...inputs.predicateRhsIsRef,
+    ...inputs.predicateRhsValues,
+    ...inputs.tokenTypes,
+    ...inputs.tokenValues,
+    inputs.exprLen,
+  ];
+}
+
+export function showPolicyPublicValueCount(params: ShowCircuitParams): number {
+  return 1 + 1 + params.maxPredicates * 4 + params.maxLogicTokens * 2 + 1;
+}
+
+export function buildPreparedMultiVerifierNonce(
+  request: PreparedMultiChallengeRequest,
+): string {
+  const payload = {
+    version: "openac-prepared-multi-v1",
+    nonce: request.nonce,
+    credentialCount: request.credentialCount,
+    claimsPerCredential: request.claimsPerCredential,
+    showParams: request.showParams,
+    showPolicy: canonicalShowInputOptions(request.showInputOptions),
+    keySetId: request.keySetId ?? "",
+  };
+  const json = JSON.stringify(payload);
+  return `openac-prepared-multi-v1.${base64urlEncode(sha256HashString(json))}`;
+}
+
+function buildClaimValues(
+  params: ShowCircuitParams,
+  options: ShowInputOptions,
+): bigint[] {
   const normalizedValues = options.normalizedClaimValues ?? [0n];
   const claimValues: bigint[] = Array(params.nClaims).fill(0n);
   for (let i = 0; i < Math.min(params.nClaims, normalizedValues.length); i++) {
     claimValues[i] = normalizedValues[i]!;
   }
+  return claimValues;
+}
 
-  // Build predicates
+function buildPolicyInputs(
+  params: ShowCircuitParams,
+  claimValues: bigint[],
+  options: ShowInputOptions,
+): Omit<ShowPolicyPublicInputs, "messageHash"> {
   const predicates = options.predicates ?? [
     { claimRef: 0, op: PredicateOp.EQ, rhsValue: claimValues[0]! },
   ];
@@ -153,7 +253,6 @@ export function buildShowCircuitInputs(
     predicateRhsValues[i] = rhsValue;
   }
 
-  // Build logic expression tokens
   const logicExpr = options.logicExpression ?? [{ type: LogicToken.REF, value: 0 }];
   const exprLen = BigInt(logicExpr.length);
 
@@ -173,13 +272,7 @@ export function buildShowCircuitInputs(
   }
 
   return {
-    deviceKeyX,
-    deviceKeyY,
-    sig_r: sigDecoded.r,
-    sig_s_inverse: sigSInverse,
-    messageHash: messageHashModQ,
     predicateLen,
-    claimValues,
     predicateClaimRefs,
     predicateOps,
     predicateRhsIsRef,
@@ -187,6 +280,21 @@ export function buildShowCircuitInputs(
     tokenTypes,
     tokenValues,
     exprLen,
+  };
+}
+
+function canonicalShowInputOptions(options: ShowInputOptions): object {
+  return {
+    predicates: (options.predicates ?? []).map((predicate) => ({
+      claimRef: predicate.claimRef,
+      op: predicate.op,
+      rhsIsRef: predicate.rhsIsRef === true,
+      rhsValue: (predicate.rhsValue ?? predicate.compareValue)?.toString() ?? "",
+    })),
+    logicExpression: (options.logicExpression ?? []).map((token) => ({
+      type: token.type,
+      value: token.value,
+    })),
   };
 }
 

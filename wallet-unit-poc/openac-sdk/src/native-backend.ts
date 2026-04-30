@@ -9,7 +9,6 @@ import { existsSync, readdirSync } from "fs";
 import { promisify } from "util";
 import { SetupError, ProofError } from "./errors.js";
 import {
-  getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
   jwtParamsForVcSize,
 } from "./multi-circuit.js";
@@ -147,23 +146,8 @@ export class NativeBackend {
     await this.run(this.withInput(["show", "setup"], inputPath), 600_000);
   }
 
-  async setupPrepare2Vc(inputPath?: string): Promise<void> {
-    await this.setupPrepareMulti(2, inputPath);
-  }
-
   async setupShow2Vc(inputPath?: string): Promise<void> {
     await this.setupShowMulti(2, inputPath);
-  }
-
-  async setupPrepareMulti(
-    credentialCount = 2,
-    inputPath?: string,
-  ): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    await this.run(
-      this.withInput([profile.prepareCliName, "setup"], inputPath),
-      1_800_000,
-    );
   }
 
   async setupShowMulti(
@@ -201,23 +185,8 @@ export class NativeBackend {
     await this.run(this.withInput(["show", "prove"], inputPath), 120_000);
   }
 
-  async provePrepare2Vc(inputPath?: string): Promise<void> {
-    await this.provePrepareMulti(2, inputPath);
-  }
-
   async proveShow2Vc(inputPath?: string): Promise<void> {
     await this.proveShowMulti(2, inputPath);
-  }
-
-  async provePrepareMulti(
-    credentialCount = 2,
-    inputPath?: string,
-  ): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    await this.run(
-      this.withInput([profile.prepareCliName, "prove"], inputPath),
-      600_000,
-    );
   }
 
   async proveShowMulti(
@@ -254,20 +223,8 @@ export class NativeBackend {
     await this.run(this.withSize(["show", "reblind"]), 120_000);
   }
 
-  async reblindPrepare2Vc(): Promise<void> {
-    await this.reblindPrepareMulti(2);
-  }
-
   async reblindShow2Vc(): Promise<void> {
     await this.reblindShowMulti(2);
-  }
-
-  async reblindPrepareMulti(credentialCount = 2): Promise<void> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    await this.run(
-      this.withSize([profile.prepareCliName, "reblind"]),
-      600_000,
-    );
   }
 
   async reblindShowMulti(credentialCount = 2): Promise<void> {
@@ -298,26 +255,8 @@ export class NativeBackend {
     };
   }
 
-  async verifyPrepare2Vc(): Promise<NativeVerificationResult> {
-    return this.verifyPrepareMulti(2);
-  }
-
   async verifyShow2Vc(): Promise<NativeVerificationResult> {
     return this.verifyShowMulti(2);
-  }
-
-  async verifyPrepareMulti(
-    credentialCount = 2,
-  ): Promise<NativeVerificationResult> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const { stdout, stderr } = await this.run(
-      this.withSize([profile.prepareCliName, "verify"]),
-    );
-    const output = stdout + stderr;
-    return {
-      valid: output.includes("Verification successful"),
-      output,
-    };
   }
 
   async verifyShowMulti(
@@ -364,22 +303,6 @@ export class NativeBackend {
     await this.reblindShow();
   }
 
-  async proveAll2Vc(prepareInputPath?: string, showInputPath?: string): Promise<void> {
-    await this.proveAllMulti(2, prepareInputPath, showInputPath);
-  }
-
-  async proveAllMulti(
-    credentialCount = 2,
-    prepareInputPath?: string,
-    showInputPath?: string,
-  ): Promise<void> {
-    await this.generateSharedBlinds();
-    await this.provePrepareMulti(credentialCount, prepareInputPath);
-    await this.reblindPrepareMulti(credentialCount);
-    await this.proveShowMulti(credentialCount, showInputPath);
-    await this.reblindShowMulti(credentialCount);
-  }
-
   async loadArtifact(filename: string): Promise<Uint8Array> {
     const path = this.resolveArtifactPath(filename);
     return new Uint8Array(await readFile(path));
@@ -411,37 +334,6 @@ export class NativeBackend {
       this.loadArtifact("prepare_verifying.key"),
       this.loadArtifact("show_proving.key"),
       this.loadArtifact("show_verifying.key"),
-    ]);
-    const jwtParams = jwtParamsForVcSize(this.vcSize);
-
-    return {
-      prepareProvingKey: ppk,
-      prepareVerifyingKey: pvk,
-      showProvingKey: spk,
-      showVerifyingKey: svk,
-      jwtParams,
-      verifyingKeys(): VerifyingKeys {
-        return { prepareVerifyingKey: pvk, showVerifyingKey: svk };
-      },
-      serialize(): SerializedKeySet {
-        return {
-          prepareProvingKey: ppk,
-          prepareVerifyingKey: pvk,
-          showProvingKey: spk,
-          showVerifyingKey: svk,
-          jwtParams,
-        };
-      },
-    };
-  }
-
-  async loadMultiKeys(credentialCount = 2): Promise<KeySet> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const [ppk, pvk, spk, svk] = await Promise.all([
-      this.loadArtifact(`${profile.prepareCircuitStem}_proving.key`),
-      this.loadArtifact(`${profile.prepareCircuitStem}_verifying.key`),
-      this.loadArtifact(`${profile.showCircuitStem}_proving.key`),
-      this.loadArtifact(`${profile.showCircuitStem}_verifying.key`),
     ]);
     const jwtParams = jwtParamsForVcSize(this.vcSize);
 
@@ -542,37 +434,6 @@ export class NativeBackend {
     };
   }
 
-  async loadMultiProofs(credentialCount = 2): Promise<{
-    prepareProof: Uint8Array;
-    showProof: Uint8Array;
-    prepareInstance: Uint8Array;
-    showInstance: Uint8Array;
-    prepareWitness: Uint8Array;
-    showWitness: Uint8Array;
-    sharedBlinds: Uint8Array;
-  }> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const [pp, sp, pi, si, pw, sw, sb] = await Promise.all([
-      this.loadArtifact(`${profile.prepareCircuitStem}_proof.bin`),
-      this.loadArtifact(`${profile.showCircuitStem}_proof.bin`),
-      this.loadArtifact(`${profile.prepareCircuitStem}_instance.bin`),
-      this.loadArtifact(`${profile.showCircuitStem}_instance.bin`),
-      this.loadArtifact(`${profile.prepareCircuitStem}_witness.bin`),
-      this.loadArtifact(`${profile.showCircuitStem}_witness.bin`),
-      this.loadArtifact("shared_blinds.bin"),
-    ]);
-
-    return {
-      prepareProof: pp,
-      showProof: sp,
-      prepareInstance: pi,
-      showInstance: si,
-      prepareWitness: pw,
-      showWitness: sw,
-      sharedBlinds: sb,
-    };
-  }
-
   get directory(): string {
     return this.workDir;
   }
@@ -585,18 +446,6 @@ export class NativeBackend {
     return (
       this.artifactExists("prepare_proving.key") &&
       this.artifactExists("show_proving.key")
-    );
-  }
-
-  get multiKeysExist(): boolean {
-    return this.hasMultiKeys();
-  }
-
-  hasMultiKeys(credentialCount = 2): boolean {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    return (
-      this.artifactExists(`${profile.prepareCircuitStem}_proving.key`) &&
-      this.artifactExists(`${profile.showCircuitStem}_proving.key`)
     );
   }
 
@@ -616,15 +465,4 @@ export class NativeBackend {
     );
   }
 
-  get multiProofsExist(): boolean {
-    return this.hasMultiProofs();
-  }
-
-  hasMultiProofs(credentialCount = 2): boolean {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    return (
-      this.artifactExists(`${profile.prepareCircuitStem}_proof.bin`) &&
-      this.artifactExists(`${profile.showCircuitStem}_proof.bin`)
-    );
-  }
 }

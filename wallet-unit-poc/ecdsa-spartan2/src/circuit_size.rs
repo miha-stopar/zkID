@@ -25,15 +25,6 @@ impl CircuitSize {
         }
     }
 
-    pub fn prepare_2vc_circuit_name(self) -> &'static str {
-        match self {
-            CircuitSize::Kb1 => "prepare_2vc_1k",
-            CircuitSize::Kb2 => "prepare_2vc_2k",
-            CircuitSize::Kb4 => "prepare_2vc_4k",
-            CircuitSize::Kb8 => "prepare_2vc_8k",
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             CircuitSize::Kb1 => "1k",

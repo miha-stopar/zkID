@@ -9,7 +9,6 @@ import {
   signDeviceNonce,
 } from "./inputs/show-input-builder.js";
 import {
-  getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
 import type { PreparedMultiShowCircuitProfile } from "./multi-circuit.js";
@@ -29,7 +28,6 @@ import type {
   JwtCircuitParams,
   ShowCircuitParams,
   PrecomputeRequest,
-  PrecomputeMultiRequest,
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
@@ -37,20 +35,15 @@ import type {
   PreparedMultiShowRequest,
   PreparedMultiPresentationProof,
   PreparedMultiPresentationRequest,
-  PrecomputedMultiCredential,
   PrecomputeTiming,
   PresentRequest,
-  PresentMultiRequest,
   PresentationProof,
   PresentationTiming,
   SerializedPrecomputedCredentialJSON,
   SerializedPreparedMultiCredentialJSON,
-  SerializedPrecomputedMultiCredentialJSON,
   SerializedPreparedMultiPresentationProofJSON,
   EcdsaPublicKey,
-  MultiCredentialInput,
   ClaimNamespaceEntry,
-  MultiCredentialCircuitKind,
 } from "./types.js";
 
 const SDK_VERSION = "0.1.0";
@@ -158,90 +151,6 @@ export class Prover {
       claimsPerCredential,
       normalizedClaimValues,
       this.buildClaimNamespace([credential], claimsPerCredential),
-      timing as PrecomputeTiming,
-    );
-  }
-
-  async precomputeMulti(
-    request: PrecomputeMultiRequest,
-  ): Promise<PrecomputedMultiCredential> {
-    const startTime = performance.now();
-    const timing: Partial<PrecomputeTiming> = {};
-    const credentialCount =
-      request.credentialCount ?? request.credentials.length;
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const jwtParams: JwtCircuitParams = request.jwtParams ?? profile.defaultJwtParams;
-    if (request.credentials.length !== profile.credentialCount) {
-      throw new InputError(
-        "PARAMS_EXCEEDED",
-        `precomputeMulti for ${profile.kind} requires exactly ${profile.credentialCount} credentials`,
-      );
-    }
-
-    let t1 = performance.now();
-    const credentials = request.credentials.map((input) =>
-      Credential.parse(input.jwt, input.disclosures),
-    );
-    timing.parseCredentialMs = performance.now() - t1;
-
-    const deviceKey = this.requireDeviceKey(credentials[0]!);
-    for (const credential of credentials.slice(1)) {
-      this.assertSameDeviceKey(deviceKey, this.requireDeviceKey(credential));
-    }
-
-    t1 = performance.now();
-    const jwtInputs = credentials.map((credential, index) =>
-      this.buildJwtInputsForMultiCredential(
-        credential,
-        request.credentials[index]!,
-        jwtParams,
-      ),
-    );
-    const prepareInputs = profile.buildPrepareInputs(jwtInputs);
-    const prepareInputsJson = circuitInputsToJson(prepareInputs);
-    timing.buildInputsMs = performance.now() - t1;
-
-    t1 = performance.now();
-    const prepareWitnessBytes = await this.generatePrepareMultiWitness(
-      profile.credentialCount,
-      prepareInputsJson,
-    );
-    timing.prepareWitnessMs = performance.now() - t1;
-
-    t1 = performance.now();
-    const prepareResult = await this.bridge.precomputePrepareMultiFromWitness(
-      profile.credentialCount,
-      request.keys.prepareProvingKey,
-      prepareWitnessBytes,
-    );
-    timing.prepareProveMs = performance.now() - t1;
-
-    const prepareWitness = await this.calculatePrepareMultiWitness(
-      profile.credentialCount,
-      prepareInputsJson,
-    );
-    const claimsPerCredential = jwtParams.maxMatches - 2;
-    const normalizedClaimValues = prepareWitness.slice(
-      1,
-      1 + claimsPerCredential * profile.credentialCount,
-    );
-    const claimNamespace = this.buildClaimNamespace(
-      credentials,
-      claimsPerCredential,
-    );
-
-    timing.totalMs = performance.now() - startTime;
-
-    return this.buildPrecomputedMultiCredential(
-      prepareResult.proof,
-      prepareResult.instance,
-      prepareResult.witness,
-      credentials,
-      profile.kind,
-      deviceKey,
-      claimsPerCredential,
-      normalizedClaimValues,
-      claimNamespace,
       timing as PrecomputeTiming,
     );
   }
@@ -456,7 +365,6 @@ export class Prover {
       credentialCount: profile.credentialCount,
       claimsPerCredential: prepared.claimsPerCredential,
       prepareProofs: prepareResults.map((result) => result.proof),
-      prepareInstances: prepareResults.map((result) => result.instance),
       linkProof: linkedPresentation.prepareProof,
       linkInstance: linkedPresentation.prepareInstance,
       showProof: linkedPresentation.showProof,
@@ -540,92 +448,6 @@ export class Prover {
 
     const publicValues: ProofPublicValues = {
       expressionResult,
-      deviceKeyX: showInputs.deviceKeyX.toString(),
-      deviceKeyY: showInputs.deviceKeyY.toString(),
-      normalizedClaimValues: precomputed.normalizedClaimValues,
-    };
-
-    return this.buildPresentationProof(
-      presentResult.prepareProof,
-      presentResult.prepareInstance,
-      presentResult.showProof,
-      presentResult.showInstance,
-      publicValues,
-      timing as PresentationTiming,
-    );
-  }
-
-  async presentMulti(request: PresentMultiRequest): Promise<PresentationProof> {
-    const startTime = performance.now();
-    const timing: Partial<PresentationTiming> = {};
-
-    const { precomputed, verifierNonce, devicePrivateKey, keys } = request;
-    const profile = getMultiCredentialCircuitProfile(precomputed.credentialCount);
-    const showParams = request.showParams ?? profile.defaultShowParams;
-    if (showParams.nClaims !== precomputed.normalizedClaimValues.length) {
-      throw new InputError(
-        "PARAMS_EXCEEDED",
-        `showParams.nClaims (${showParams.nClaims}) must match precomputed normalized claim count (${precomputed.normalizedClaimValues.length})`,
-      );
-    }
-
-    const suppliedClaimValues = request.showInputOptions?.normalizedClaimValues;
-    if (
-      suppliedClaimValues &&
-      !this.bigintArraysEqual(suppliedClaimValues, precomputed.normalizedClaimValues)
-    ) {
-      throw new InputError(
-        "PARAMS_EXCEEDED",
-        "showInputOptions.normalizedClaimValues must match the precomputed Prepare outputs",
-      );
-    }
-
-    const deviceSignature = signDeviceNonce(verifierNonce, devicePrivateKey);
-    const showInputs = buildShowCircuitInputs(
-      showParams,
-      verifierNonce,
-      deviceSignature,
-      precomputed.deviceKey,
-      {
-        ...request.showInputOptions,
-        normalizedClaimValues: precomputed.normalizedClaimValues,
-      },
-    );
-    const showInputsJson = circuitInputsToJson(showInputs);
-
-    let t1 = performance.now();
-    const showWitnessBytes = await this.generateShowMultiWitness(
-      profile.credentialCount,
-      showInputsJson,
-    );
-    timing.showWitnessMs = performance.now() - t1;
-
-    t1 = performance.now();
-    const showResult = await this.bridge.precomputeShowMultiFromWitness(
-      profile.credentialCount,
-      keys.showProvingKey,
-      showWitnessBytes,
-    );
-    timing.showProveMs = performance.now() - t1;
-
-    t1 = performance.now();
-    const presentResult = await this.bridge.present(
-      keys.prepareProvingKey,
-      precomputed.prepareInstance,
-      precomputed.prepareWitness,
-      keys.showProvingKey,
-      showResult.instance,
-      showResult.witness,
-    );
-    timing.presentMs = performance.now() - t1;
-    timing.totalMs = performance.now() - startTime;
-
-    const showWitness = await this.calculateShowMultiWitness(
-      profile.credentialCount,
-      showInputsJson,
-    );
-    const publicValues: ProofPublicValues = {
-      expressionResult: showWitness[1] === 1n,
       deviceKeyX: showInputs.deviceKeyX.toString(),
       deviceKeyY: showInputs.deviceKeyY.toString(),
       normalizedClaimValues: precomputed.normalizedClaimValues,
@@ -830,23 +652,6 @@ export class Prover {
     return await this.witnessCalculator.calculateShowWitnessWtns(inputs);
   }
 
-  private async generatePrepareMultiWitness(
-    credentialCount: number,
-    inputsJson: string,
-  ): Promise<Uint8Array> {
-    if (!this.witnessCalculator) {
-      throw new ProofError(
-        "WITNESS_GENERATION_FAILED",
-        "WitnessCalculator not initialized. Call initWitnessCalculator() first or provide it in constructor.",
-      );
-    }
-    const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculatePrepareMultiWitnessWtns(
-      credentialCount,
-      inputs,
-    );
-  }
-
   private async generateShowMultiWitness(
     credentialCount: number,
     inputsJson: string,
@@ -906,23 +711,6 @@ export class Prover {
     return await this.witnessCalculator.calculateShowWitness(inputs);
   }
 
-  private async calculatePrepareMultiWitness(
-    credentialCount: number,
-    inputsJson: string,
-  ): Promise<bigint[]> {
-    if (!this.witnessCalculator) {
-      throw new ProofError(
-        "WITNESS_GENERATION_FAILED",
-        "WitnessCalculator not initialized.",
-      );
-    }
-    const inputs = this.parseJsonToBigInt(inputsJson);
-    return await this.witnessCalculator.calculatePrepareMultiWitness(
-      credentialCount,
-      inputs,
-    );
-  }
-
   private async calculateShowMultiWitness(
     credentialCount: number,
     inputsJson: string,
@@ -964,21 +752,6 @@ export class Prover {
       }
       return value;
     });
-  }
-
-  private buildJwtInputsForMultiCredential(
-    credential: Credential,
-    input: MultiCredentialInput,
-    jwtParams: JwtCircuitParams,
-  ) {
-    return buildJwtCircuitInputs(
-      credential,
-      input.issuerPublicKey,
-      jwtParams,
-      input.additionalMatches ?? credential.disclosureHashes,
-      input.decodeFlags ?? this.defaultDecodeFlags(credential),
-      input.claimFormats ?? this.defaultClaimFormats(credential),
-    );
   }
 
   private assertPreparedShowParams(
@@ -1113,29 +886,6 @@ export class Prover {
     );
   }
 
-  private requireDeviceKey(credential: Credential): EcdsaPublicKey {
-    const deviceKey = credential.deviceBindingKey;
-    if (!deviceKey) {
-      throw new InputError(
-        "INVALID_JWT",
-        "JWT payload does not contain device binding key (cnf.jwk)",
-      );
-    }
-    return deviceKey;
-  }
-
-  private assertSameDeviceKey(
-    expected: EcdsaPublicKey,
-    actual: EcdsaPublicKey,
-  ): void {
-    if (expected.x !== actual.x || expected.y !== actual.y) {
-      throw new InputError(
-        "INVALID_KEY",
-        "All credentials in a multi-VC presentation must use the same device binding key",
-      );
-    }
-  }
-
   private buildClaimNamespace(
     credentials: Credential[],
     claimsPerCredential: number,
@@ -1207,60 +957,6 @@ export class Prover {
           birthdayClaimIndex: result.birthdayClaimIndex,
           birthdayClaim: result.birthdayClaim,
           deviceKey: result.deviceKey,
-          claimsPerCredential: result.claimsPerCredential,
-          normalizedClaimValues: result.normalizedClaimValues.map((value) =>
-            value.toString(),
-          ),
-          claimNamespace: result.claimNamespace,
-        };
-      },
-    };
-    return result;
-  }
-
-  private buildPrecomputedMultiCredential(
-    prepareProof: Uint8Array,
-    prepareInstance: Uint8Array,
-    prepareWitness: Uint8Array,
-    credentials: Credential[],
-    kind: MultiCredentialCircuitKind,
-    deviceKey: EcdsaPublicKey,
-    claimsPerCredential: number,
-    normalizedClaimValues: bigint[],
-    claimNamespace: ClaimNamespaceEntry[],
-    timing: PrecomputeTiming,
-  ): PrecomputedMultiCredential {
-    const result: PrecomputedMultiCredential = {
-      kind,
-      prepareProof,
-      prepareInstance,
-      prepareWitness,
-      credentials: credentials.map((credential) => ({
-        jwt: credential.token,
-        disclosures: credential.claims.map((c) => c.raw),
-        deviceBindingKey: deviceKey,
-      })),
-      deviceKey,
-      credentialCount: credentials.length,
-      claimsPerCredential,
-      normalizedClaimValues,
-      claimNamespace,
-      timing,
-
-      serialize(): Uint8Array {
-        return serializePrecomputedMulti(result);
-      },
-
-      toJSON(): SerializedPrecomputedMultiCredentialJSON {
-        return {
-          version: SDK_VERSION,
-          kind: result.kind,
-          prepareProof: base64Encode(result.prepareProof),
-          prepareInstance: base64Encode(result.prepareInstance),
-          prepareWitness: base64Encode(result.prepareWitness),
-          credentials: result.credentials,
-          deviceKey: result.deviceKey,
-          credentialCount: result.credentialCount,
           claimsPerCredential: result.claimsPerCredential,
           normalizedClaimValues: result.normalizedClaimValues.map((value) =>
             value.toString(),
@@ -1358,9 +1054,6 @@ function buildPreparedMultiPresentationProof(
         credentialCount: result.credentialCount,
         claimsPerCredential: result.claimsPerCredential,
         prepareProofs: result.prepareProofs.map((proof) => base64Encode(proof)),
-        prepareInstances: result.prepareInstances.map((instance) =>
-          base64Encode(instance),
-        ),
         linkProof: base64Encode(result.linkProof),
         linkInstance: base64Encode(result.linkInstance),
         showProof: base64Encode(result.showProof),
@@ -1446,13 +1139,6 @@ function serializePrecomputed(precomputed: PrecomputedCredential): Uint8Array {
 
 function serializePreparedMulti(prepared: PreparedMultiCredential): Uint8Array {
   const json = JSON.stringify(prepared.toJSON());
-  return new TextEncoder().encode(json);
-}
-
-function serializePrecomputedMulti(
-  precomputed: PrecomputedMultiCredential,
-): Uint8Array {
-  const json = JSON.stringify(precomputed.toJSON());
   return new TextEncoder().encode(json);
 }
 
@@ -1642,9 +1328,6 @@ export function deserializePreparedMultiPresentation(
     credentialCount: json.credentialCount,
     claimsPerCredential: json.claimsPerCredential,
     prepareProofs: json.prepareProofs.map((proof) => base64Decode(proof)),
-    prepareInstances: json.prepareInstances.map((instance) =>
-      base64Decode(instance),
-    ),
     linkProof: base64Decode(json.linkProof),
     linkInstance: base64Decode(json.linkInstance),
     showProof: base64Decode(json.showProof),
@@ -1664,45 +1347,4 @@ export function deserializePreparedMultiPresentation(
       totalMs: 0,
     },
   });
-}
-
-export function deserializePrecomputedMulti(
-  data: Uint8Array,
-): PrecomputedMultiCredential {
-  const json: SerializedPrecomputedMultiCredentialJSON = JSON.parse(
-    new TextDecoder().decode(data),
-  );
-
-  const normalizedClaimValues = json.normalizedClaimValues.map((value) =>
-    BigInt(value),
-  );
-  const result: PrecomputedMultiCredential = {
-    kind: json.kind,
-    prepareProof: base64Decode(json.prepareProof),
-    prepareInstance: base64Decode(json.prepareInstance),
-    prepareWitness: base64Decode(json.prepareWitness),
-    credentials: json.credentials,
-    deviceKey: json.deviceKey,
-    credentialCount: json.credentialCount,
-    claimsPerCredential: json.claimsPerCredential,
-    normalizedClaimValues,
-    claimNamespace: json.claimNamespace,
-    timing: {
-      parseCredentialMs: 0,
-      buildInputsMs: 0,
-      prepareWitnessMs: 0,
-      prepareProveMs: 0,
-      totalMs: 0,
-    },
-
-    serialize(): Uint8Array {
-      return serializePrecomputedMulti(result);
-    },
-
-    toJSON(): SerializedPrecomputedMultiCredentialJSON {
-      return json;
-    },
-  };
-
-  return result;
 }

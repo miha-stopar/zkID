@@ -1,8 +1,13 @@
 import { WasmBridge } from "./wasm-bridge.js";
 import { deserializeProofBundle } from "./prover.js";
 import { getPreparedMultiShowCircuitProfile } from "./multi-circuit.js";
+import {
+  buildShowPolicyPublicValues,
+  showPolicyPublicValueCount,
+} from "./inputs/show-input-builder.js";
 import type {
   PreparedMultiPresentationProof,
+  PreparedMultiVerificationOptions,
   PreparedMultiVerifyingKeys,
   VerificationResult,
   VerifyingKeys,
@@ -124,14 +129,62 @@ export class Verifier {
   async verifyPreparedMulti(
     proof: PreparedMultiPresentationProof,
     keys: PreparedMultiVerifyingKeys,
+    expected: PreparedMultiVerificationOptions,
   ): Promise<VerificationResult> {
     const startTime = performance.now();
 
+    if (!expected || !Number.isInteger(expected.expectedCredentialCount)) {
+      return this.invalidResult(
+        startTime,
+        "Prepared multi verification requires an expected credential count",
+      );
+    }
+    if (!expected.verifierNonce) {
+      return this.invalidResult(
+        startTime,
+        "Prepared multi verification requires the expected verifier nonce",
+      );
+    }
+    const policyError = this.validateExpectedPolicy(expected);
+    if (policyError) {
+      return this.invalidResult(startTime, policyError);
+    }
+
     let profile;
     try {
-      profile = getPreparedMultiShowCircuitProfile(proof.credentialCount);
+      profile = getPreparedMultiShowCircuitProfile(expected.expectedCredentialCount);
     } catch (error) {
       return this.invalidResult(startTime, error instanceof Error ? error.message : String(error));
+    }
+
+    if (proof.credentialCount !== expected.expectedCredentialCount) {
+      return this.invalidResult(
+        startTime,
+        `Prepared multi proof credential count mismatch: expected ${expected.expectedCredentialCount}`,
+      );
+    }
+    if (
+      keys.credentialCount !== undefined &&
+      keys.credentialCount !== expected.expectedCredentialCount
+    ) {
+      return this.invalidResult(
+        startTime,
+        `Prepared multi verifying key count mismatch: expected ${expected.expectedCredentialCount}`,
+      );
+    }
+    if (expected.expectedKeySetId !== undefined) {
+      if (!keys.keySetId) {
+        return this.invalidResult(
+          startTime,
+          "Prepared multi verification requires verifying keys with keySetId metadata",
+        );
+      }
+      if (keys.keySetId !== expected.expectedKeySetId) {
+        return this.invalidResult(
+          startTime,
+          `Prepared multi verifying key set mismatch: expected ${expected.expectedKeySetId}`,
+        );
+      }
     }
 
     if (proof.kind !== profile.kind) {
@@ -151,7 +204,46 @@ export class Verifier {
       );
     }
 
+    const expectedClaimsPerCredential =
+      expected.expectedClaimsPerCredential ??
+      profile.defaultShowParams.nClaims / profile.credentialCount;
+    if (proof.claimsPerCredential !== expectedClaimsPerCredential) {
+      return this.invalidResult(
+        startTime,
+        `Prepared multi proof claimsPerCredential mismatch: expected ${expectedClaimsPerCredential}`,
+      );
+    }
+
     const expectedClaimCount = proof.credentialCount * proof.claimsPerCredential;
+    const showParams = expected.showParams ?? profile.defaultShowParams;
+    if (showParams.nClaims !== expectedClaimCount) {
+      return this.invalidResult(
+        startTime,
+        `Expected Show nClaims (${showParams.nClaims}) does not match prepared normalized claim count (${expectedClaimCount})`,
+      );
+    }
+
+    let expectedShowPolicyPublicValues: bigint[];
+    try {
+      expectedShowPolicyPublicValues = buildShowPolicyPublicValues(
+        showParams,
+        expected.verifierNonce,
+        expected.showInputOptions,
+      );
+    } catch (error) {
+      return this.invalidResult(
+        startTime,
+        `Invalid expected Show policy: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const expectedPolicyPublicCount = showPolicyPublicValueCount(showParams);
+    if (expectedShowPolicyPublicValues.length !== expectedPolicyPublicCount) {
+      return this.invalidResult(
+        startTime,
+        "Expected Show policy public value count mismatch",
+      );
+    }
+
     const normalizedClaimValues = proof.publicValues?.normalizedClaimValues;
     if (
       !Array.isArray(normalizedClaimValues) ||
@@ -164,8 +256,7 @@ export class Verifier {
     }
 
     if (
-      proof.prepareProofs.length !== proof.credentialCount ||
-      proof.prepareInstances.length !== proof.credentialCount
+      proof.prepareProofs.length !== proof.credentialCount
     ) {
       return this.invalidResult(
         startTime,
@@ -233,6 +324,19 @@ export class Verifier {
         error instanceof Error ? error.message : String(error),
       );
     }
+    const expectedNormalizedClaims = expectedPublic.slice(3, 3 + expectedClaimCount);
+    for (let i = 0; i < expectedNormalizedClaims.length; i++) {
+      if (
+        normalizeScalar(normalizedClaimValues[i]?.toString() ?? "") !==
+        normalizeScalar(expectedNormalizedClaims[i] ?? "")
+      ) {
+        return this.invalidResult(
+          startTime,
+          `Prepared multi proof public normalized claim mismatch at index ${i}`,
+        );
+      }
+    }
+
     const actualPublic = linkPublicValues;
     if (actualPublic.length !== expectedPublic.length) {
       return this.invalidResult(
@@ -257,6 +361,14 @@ export class Verifier {
       );
     }
 
+    const expectedShowPublicCount = 3 + expectedShowPolicyPublicValues.length;
+    if (showPublicValues.length !== expectedShowPublicCount) {
+      return this.invalidResult(
+        startTime,
+        `Show proof public value count mismatch: expected ${expectedShowPublicCount}, got ${showPublicValues.length}`,
+      );
+    }
+
     if (
       normalizeScalar(showPublicValues[1] ?? "") !==
         normalizeScalar(expectedPublic[1] ?? "") ||
@@ -269,9 +381,29 @@ export class Verifier {
       );
     }
 
+    for (let i = 0; i < expectedShowPolicyPublicValues.length; i++) {
+      if (
+        normalizeScalar(showPublicValues[3 + i] ?? "") !==
+        normalizeScalar(expectedShowPolicyPublicValues[i]!.toString())
+      ) {
+        return this.invalidResult(
+          startTime,
+          `Show proof challenge/policy public value mismatch at index ${i}`,
+        );
+      }
+    }
+
+    const expressionResult = parseScalarToBool(showPublicValues[0] ?? "");
+    if (expected.requireExpressionResult !== false && !expressionResult) {
+      return this.invalidResult(
+        startTime,
+        "Show proof expression result does not satisfy the expected policy",
+      );
+    }
+
     return {
       valid: true,
-      expressionResult: parseScalarToBool(showPublicValues[0] ?? ""),
+      expressionResult,
       deviceKey: {
         x: showPublicValues[1] ?? "",
         y: showPublicValues[2] ?? "",
@@ -294,6 +426,22 @@ export class Verifier {
     return error
       .replace("prepare and show proofs", "link and show proofs")
       .replace("Prepare proof", "Link proof");
+  }
+
+  private validateExpectedPolicy(
+    expected: PreparedMultiVerificationOptions,
+  ): string | null {
+    const options = expected.showInputOptions;
+    if (!options || !Array.isArray(options.predicates) || options.predicates.length === 0) {
+      return "Prepared multi verification requires explicit expected predicates";
+    }
+    if (
+      !Array.isArray(options.logicExpression) ||
+      options.logicExpression.length === 0
+    ) {
+      return "Prepared multi verification requires an explicit expected logic expression";
+    }
+    return null;
   }
 
   private expectedLinkPublicValues(

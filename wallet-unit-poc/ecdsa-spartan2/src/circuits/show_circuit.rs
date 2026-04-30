@@ -174,24 +174,20 @@ impl SpartanCircuit<E> for ShowCircuit {
                 synthesize(cs, r1cs, Some(witness))?;
             }
             Err(_) => {
-                // Show circuit public signals: expressionResult (output) +
-                // deviceKeyX, deviceKeyY (declared `public[...]` in main).
-                let num_public = 3;
-                synthesize_witness_only(cs, &witness, num_public)?;
+                let layout =
+                    calculate_show_witness_indices(self.path_config.circuit_size.n_claims());
+                synthesize_witness_only(cs, &witness, layout.num_public())?;
             }
         }
         Ok(())
     }
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
-        // Circom public IO order (from show.sym):
-        //   w[1] = expressionResult (output)
-        //   w[2] = deviceKeyX (public input)
-        //   w[3] = deviceKeyY (public input)
+        let layout = calculate_show_witness_indices(self.path_config.circuit_size.n_claims());
         let witness = self.get_or_generate_witness().ok();
 
-        let mut values = Vec::with_capacity(3);
-        for idx in 1..=3 {
+        let mut values = Vec::with_capacity(layout.num_public());
+        for idx in 1..=layout.num_public() {
             values.push(witness.as_ref().map(|w| w[idx]).unwrap_or(Scalar::ZERO));
         }
         Ok(values)

@@ -22,9 +22,9 @@ pub mod utils;
 // Re-export commonly used types and functions
 pub use circuit_size::CircuitSize;
 pub use circuits::{
-    prepare_2vc_circuit::Prepare2VcCircuit, prepare_circuit::PrepareCircuit,
-    prepared_multi_link_circuit::PreparedMultiLinkCircuit, show_2vc_circuit::Show2VcCircuit,
-    show_circuit::ShowCircuit, show_multi_vc_circuit::ShowMultiVcCircuit,
+    prepare_circuit::PrepareCircuit, prepared_multi_link_circuit::PreparedMultiLinkCircuit,
+    show_2vc_circuit::Show2VcCircuit, show_circuit::ShowCircuit,
+    show_multi_vc_circuit::ShowMultiVcCircuit,
 };
 pub use paths::PathConfig;
 pub use prover::{generate_prepare_witness, prove_circuit_in_memory, reblind_in_memory};
@@ -39,7 +39,7 @@ pub use setup::{
     load_witness, save_keys, setup_circuit_keys, setup_circuit_keys_no_save,
 };
 pub use utils::{
-    bigint_to_scalar, calculate_jwt_output_indices, calculate_prepare_2vc_output_indices,
-    calculate_prepared_multi_link_witness_indices, convert_bigint_to_scalar, parse_jwt_inputs,
-    parse_prepare_2vc_inputs, parse_prepared_multi_link_inputs, parse_show_inputs, parse_witness,
+    bigint_to_scalar, calculate_jwt_output_indices, calculate_prepared_multi_link_witness_indices,
+    convert_bigint_to_scalar, parse_jwt_inputs, parse_prepared_multi_link_inputs,
+    parse_show_inputs, parse_witness,
 };

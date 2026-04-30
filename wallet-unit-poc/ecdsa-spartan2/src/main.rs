@@ -21,17 +21,15 @@ use ecdsa_spartan2::{
     generate_shared_blinds, load_instance, load_proof, load_proving_key, load_shared_blinds,
     load_verifying_key, load_witness,
     paths::keys::{
-        PREPARE_2VC_INSTANCE, PREPARE_2VC_PROOF, PREPARE_2VC_PROVING_KEY,
-        PREPARE_2VC_VERIFYING_KEY, PREPARE_2VC_WITNESS, PREPARE_INSTANCE, PREPARE_PROOF,
-        PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY, PREPARE_WITNESS, SHARED_BLINDS,
-        SHOW_2VC_INSTANCE, SHOW_2VC_PROOF, SHOW_2VC_PROVING_KEY, SHOW_2VC_VERIFYING_KEY,
-        SHOW_2VC_WITNESS, SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY, SHOW_VERIFYING_KEY,
-        SHOW_WITNESS,
+        PREPARE_INSTANCE, PREPARE_PROOF, PREPARE_PROVING_KEY, PREPARE_VERIFYING_KEY,
+        PREPARE_WITNESS, SHARED_BLINDS, SHOW_2VC_INSTANCE, SHOW_2VC_PROOF, SHOW_2VC_PROVING_KEY,
+        SHOW_2VC_VERIFYING_KEY, SHOW_2VC_WITNESS, SHOW_INSTANCE, SHOW_PROOF, SHOW_PROVING_KEY,
+        SHOW_VERIFYING_KEY, SHOW_WITNESS,
     },
     prove_circuit, prove_circuit_with_pk, reblind, reblind_with_loaded_data, run_circuit,
     save_keys, setup_circuit_keys, setup_circuit_keys_no_save, verify_circuit,
-    verify_circuit_with_loaded_data, PathConfig, Prepare2VcCircuit, PrepareCircuit,
-    PreparedMultiLinkCircuit, Show2VcCircuit, ShowCircuit, ShowMultiVcCircuit, E,
+    verify_circuit_with_loaded_data, PathConfig, PrepareCircuit, PreparedMultiLinkCircuit,
+    Show2VcCircuit, ShowCircuit, ShowMultiVcCircuit, E,
 };
 use ff::Field;
 use std::{env::args, fs, path::PathBuf, process, time::Instant};
@@ -494,7 +492,6 @@ fn run_complete_pipeline(path_config: PathConfig, input_path: Option<PathBuf>) -
 enum CircuitKind {
     Prepare,
     Show,
-    Prepare2Vc,
     Show2Vc,
     Show3Vc,
     Show4Vc,
@@ -555,7 +552,6 @@ fn main() {
     match command.circuit {
         CircuitKind::Prepare => execute_prepare(command.action, command.options),
         CircuitKind::Show => execute_show(command.action, command.options),
-        CircuitKind::Prepare2Vc => execute_prepare_2vc(command.action, command.options),
         CircuitKind::Show2Vc => execute_show_2vc(command.action, command.options),
         CircuitKind::Show3Vc => execute_show_multi_vc(3, command.action, command.options),
         CircuitKind::Show4Vc => execute_show_multi_vc(4, command.action, command.options),
@@ -682,63 +678,6 @@ fn execute_show(action: CircuitAction, options: CommandOptions) {
         CircuitAction::Benchmark => {
             let results = run_complete_pipeline(path_config, options.input);
             results.print_summary();
-        }
-    }
-}
-
-fn execute_prepare_2vc(action: CircuitAction, options: CommandOptions) {
-    let path_config = options.path_config();
-
-    match action {
-        CircuitAction::Setup => {
-            info!(input = ?options.input, size = %path_config.circuit_size, "Setting up keys for 2VC Prepare");
-            let circuit = Prepare2VcCircuit::new(path_config.clone(), options.input.clone());
-            setup_circuit_keys(
-                circuit,
-                path_config.key_path(PREPARE_2VC_PROVING_KEY),
-                path_config.key_path(PREPARE_2VC_VERIFYING_KEY),
-            );
-        }
-        CircuitAction::Run => {
-            let circuit = Prepare2VcCircuit::new(path_config, options.input.clone());
-            info!("Running 2VC Prepare circuit");
-            run_circuit(circuit);
-        }
-        CircuitAction::Prove => {
-            let circuit = Prepare2VcCircuit::new(path_config.clone(), options.input.clone());
-            info!("Proving 2VC Prepare circuit");
-            prove_circuit(
-                circuit,
-                path_config.key_path(PREPARE_2VC_PROVING_KEY),
-                path_config.artifact_path(PREPARE_2VC_INSTANCE),
-                path_config.artifact_path(PREPARE_2VC_WITNESS),
-                path_config.artifact_path(PREPARE_2VC_PROOF),
-            );
-        }
-        CircuitAction::Verify => {
-            info!("Verifying 2VC Prepare proof");
-            let _public_values = verify_circuit(
-                path_config.artifact_path(PREPARE_2VC_PROOF),
-                path_config.key_path(PREPARE_2VC_VERIFYING_KEY),
-            );
-        }
-        CircuitAction::Reblind => {
-            info!("Reblinding 2VC Prepare proof");
-            reblind(
-                path_config.key_path(PREPARE_2VC_PROVING_KEY),
-                path_config.artifact_path(PREPARE_2VC_INSTANCE),
-                path_config.artifact_path(PREPARE_2VC_WITNESS),
-                path_config.artifact_path(PREPARE_2VC_PROOF),
-                path_config.artifact_path(SHARED_BLINDS),
-            );
-        }
-        CircuitAction::GenerateSharedBlinds => {
-            info!("Generating shared blinds");
-            generate_shared_blinds::<E>(path_config.artifact_path(SHARED_BLINDS), NUM_SHARED);
-        }
-        CircuitAction::Benchmark => {
-            eprintln!("Error: benchmark is not implemented for prepare-2vc yet");
-            process::exit(1);
         }
     }
 }
@@ -973,7 +912,6 @@ fn parse_command(args: &[String]) -> Result<ParsedCommand, String> {
         }
         "prepare" => parse_circuit_command(CircuitKind::Prepare, &args[1..]),
         "show" => parse_circuit_command(CircuitKind::Show, &args[1..]),
-        "prepare-2vc" | "prepare_2vc" => parse_circuit_command(CircuitKind::Prepare2Vc, &args[1..]),
         "show-2vc" | "show_2vc" => parse_circuit_command(CircuitKind::Show2Vc, &args[1..]),
         "show-3vc" | "show_3vc" => parse_circuit_command(CircuitKind::Show3Vc, &args[1..]),
         "show-4vc" | "show_4vc" => parse_circuit_command(CircuitKind::Show4Vc, &args[1..]),
@@ -1100,9 +1038,7 @@ fn parse_circuit_command(circuit: CircuitKind, tail: &[String]) -> Result<Parsed
         }
     };
 
-    if action == CircuitAction::GenerateSharedBlinds
-        && !matches!(circuit, CircuitKind::Prepare | CircuitKind::Prepare2Vc)
-    {
+    if action == CircuitAction::GenerateSharedBlinds && !matches!(circuit, CircuitKind::Prepare) {
         return Err("generate_shared_blinds is only supported for Prepare circuits".into());
     }
 
@@ -1204,7 +1140,7 @@ fn parse_options_size_only(args: &[String]) -> Result<CommandOptions, String> {
 fn print_usage() {
     eprintln!(
         "Usage:
-  ecdsa-spartan2 <prepare|show|prepare-2vc|show-2vc|show-3vc|show-4vc|link-2vc|link-3vc|link-4vc> [run|setup|prove|verify|reblind|benchmark] [options]
+  ecdsa-spartan2 <prepare|show|show-2vc|show-3vc|show-4vc|link-2vc|link-3vc|link-4vc> [run|setup|prove|verify|reblind|benchmark] [options]
   ecdsa-spartan2 benchmark      [options]
   ecdsa-spartan2 benchmark-all
 
@@ -1213,7 +1149,6 @@ Commands:
   benchmark-all     Prove+reblind+verify across ALL compiled sizes, print comparison table
   prepare     <action>  Run action on single-VC Prepare circuit
   show        <action>  Run action on single-VC Show circuit
-  prepare-2vc <action>  Run action on two-credential Prepare circuit
   show-2vc    <action>  Run action on two-credential Show circuit
   show-3vc    <action>  Run action on three-credential prepared-claims Show circuit
   show-4vc    <action>  Run action on four-credential prepared-claims Show circuit
@@ -1243,7 +1178,6 @@ Typical workflow:
   # 3. Generate setup keys (one-time, slow)
   cargo run --release -- prepare setup --size 1k
   cargo run --release -- show    setup --size 1k
-  cargo run --release -- prepare-2vc setup --size 1k
   cargo run --release -- show-2vc    setup --size 1k
   cargo run --release -- show-3vc    setup --size 1k
   cargo run --release -- show-4vc    setup --size 1k

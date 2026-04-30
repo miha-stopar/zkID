@@ -11,8 +11,6 @@
 import { WasmError } from "./errors.js";
 import {
   getPreparedMultiShowCircuitProfile,
-  getMultiCredentialCircuitProfile,
-  multiCredentialKeyFilenames,
   preparedMultiKeyFilenames,
 } from "./multi-circuit.js";
 
@@ -53,10 +51,6 @@ interface OpenACWasmModule {
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
   precompute_show_from_witness(
-    pk: Uint8Array,
-    witnessWtns: Uint8Array,
-  ): WasmPrecomputeResult;
-  precompute_prepare_2vc_from_witness(
     pk: Uint8Array,
     witnessWtns: Uint8Array,
   ): WasmPrecomputeResult;
@@ -236,36 +230,6 @@ export class WasmBridge {
     return { preparePk, prepareVk, showPk, showVk };
   }
 
-  async loadMultiKeys(
-    baseUrl: string,
-    vcSize: VcSize,
-    credentialCount = 2,
-  ): Promise<SetupKeys> {
-    const keyFiles = multiCredentialKeyFilenames(credentialCount, vcSize);
-    const fetchKey = async (filename: string): Promise<Uint8Array> => {
-      const url = `${baseUrl}/${filename}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new WasmError(
-          "KEY_LOAD_FAILED",
-          `Failed to load key from ${url}: ${response.status} ${response.statusText}`,
-        );
-      }
-      const buffer = await response.arrayBuffer();
-      return new Uint8Array(buffer);
-    };
-
-    const keys = await Promise.all(keyFiles.map(fetchKey));
-    const [preparePk, prepareVk, showPk, showVk] = keys as [
-      Uint8Array,
-      Uint8Array,
-      Uint8Array,
-      Uint8Array,
-    ];
-
-    return { preparePk, prepareVk, showPk, showVk };
-  }
-
   async loadPreparedMultiKeys(
     baseUrl: string,
     vcSize: VcSize,
@@ -322,26 +286,6 @@ export class WasmBridge {
       instance: wasmBytes(result, "instance"),
       witness: wasmBytes(result, "witness"),
     };
-  }
-
-  async precomputePrepare2VcFromWitness(
-    preparePk: Uint8Array,
-    witnessWtns: Uint8Array,
-  ): Promise<PrecomputeState> {
-    return this.precomputePrepareMultiFromWitness(2, preparePk, witnessWtns);
-  }
-
-  async precomputePrepareMultiFromWitness(
-    credentialCount: number,
-    preparePk: Uint8Array,
-    witnessWtns: Uint8Array,
-  ): Promise<PrecomputeState> {
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    return this.precomputeWithWasmExport(
-      profile.prepareWasmExport,
-      preparePk,
-      witnessWtns,
-    );
   }
 
   async precomputeShow2VcFromWitness(

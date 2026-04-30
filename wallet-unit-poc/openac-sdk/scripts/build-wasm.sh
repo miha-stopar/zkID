@@ -68,13 +68,6 @@ if [ -d "$CIRCOM_BUILD" ]; then
         echo "  Copied show.wasm (witness calculator)"
     fi
 
-    # 2VC witness calculator WASM files. The SDK's fixed 2VC path currently
-    # uses the 1k Prepare variant, matching the default 2VC key size.
-    if [ -f "$CIRCOM_BUILD/prepare_2vc_1k/prepare_2vc_1k_js/prepare_2vc_1k.wasm" ]; then
-        cp "$CIRCOM_BUILD/prepare_2vc_1k/prepare_2vc_1k_js/prepare_2vc_1k.wasm" "$ASSETS_DIR/prepare_2vc.wasm"
-        echo "  Copied prepare_2vc.wasm (1k witness calculator)"
-    fi
-
     if [ -f "$CIRCOM_BUILD/show_2vc/show_2vc_js/show_2vc.wasm" ]; then
         cp "$CIRCOM_BUILD/show_2vc/show_2vc_js/show_2vc.wasm" "$ASSETS_DIR/show_2vc.wasm"
         echo "  Copied show_2vc.wasm (witness calculator)"

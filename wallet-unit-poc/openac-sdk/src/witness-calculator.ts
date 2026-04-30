@@ -4,13 +4,11 @@ import { join, dirname } from "path";
 import { fileURLToPath, pathToFileURL } from "url";
 import { ProofError } from "./errors.js";
 import {
-  getMultiCredentialCircuitProfile,
   getPreparedMultiShowCircuitProfile,
 } from "./multi-circuit.js";
 import type {
   JwtCircuitInputs,
   JwtCircuitParams,
-  Prepare2VcCircuitInputs,
   ShowCircuitInputs,
 } from "./types.js";
 
@@ -31,7 +29,6 @@ type WitnessCalculatorBuilder = (
 export class WitnessCalculator {
   private jwtCalculators = new Map<string, WitnessCalculatorInstance>();
   private showCalculator: WitnessCalculatorInstance | null = null;
-  private prepareMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private showMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private linkMultiCalculators = new Map<number, WitnessCalculatorInstance>();
   private builder: WitnessCalculatorBuilder | null = null;
@@ -97,20 +94,8 @@ export class WitnessCalculator {
     return await this.showCalculator.calculateWitness(inputs as CircuitInput, true);
   }
 
-  async calculatePrepare2VcWitness(inputs: Prepare2VcCircuitInputs | CircuitInput): Promise<bigint[]> {
-    return this.calculatePrepareMultiWitness(2, inputs);
-  }
-
   async calculateShow2VcWitness(inputs: ShowCircuitInputs | CircuitInput): Promise<bigint[]> {
     return this.calculateShowMultiWitness(2, inputs);
-  }
-
-  async calculatePrepareMultiWitness(
-    credentialCount: number,
-    inputs: Prepare2VcCircuitInputs | CircuitInput,
-  ): Promise<bigint[]> {
-    const calculator = await this.getPrepareMultiCalculator(credentialCount);
-    return await calculator.calculateWitness(inputs as CircuitInput, true);
   }
 
   async calculateShowMultiWitness(
@@ -136,20 +121,8 @@ export class WitnessCalculator {
     return await this.showCalculator.calculateWTNSBin(inputs as CircuitInput, true);
   }
 
-  async calculatePrepare2VcWitnessWtns(inputs: Prepare2VcCircuitInputs | CircuitInput): Promise<Uint8Array> {
-    return this.calculatePrepareMultiWitnessWtns(2, inputs);
-  }
-
   async calculateShow2VcWitnessWtns(inputs: ShowCircuitInputs | CircuitInput): Promise<Uint8Array> {
     return this.calculateShowMultiWitnessWtns(2, inputs);
-  }
-
-  async calculatePrepareMultiWitnessWtns(
-    credentialCount: number,
-    inputs: Prepare2VcCircuitInputs | CircuitInput,
-  ): Promise<Uint8Array> {
-    const calculator = await this.getPrepareMultiCalculator(credentialCount);
-    return await calculator.calculateWTNSBin(inputs as CircuitInput, true);
   }
 
   async calculateShowMultiWitnessWtns(
@@ -199,20 +172,6 @@ export class WitnessCalculator {
 
     const existing = candidates.find((candidate) => existsSync(candidate));
     return existing ?? candidates[0]!;
-  }
-
-  private async getPrepareMultiCalculator(
-    credentialCount: number,
-  ): Promise<WitnessCalculatorInstance> {
-    const existing = this.prepareMultiCalculators.get(credentialCount);
-    if (existing) return existing;
-
-    const profile = getMultiCredentialCircuitProfile(credentialCount);
-    const calculator = await this.loadCalculator(
-      join(this.assetsDir, profile.prepareWitnessWasm),
-    );
-    this.prepareMultiCalculators.set(credentialCount, calculator);
-    return calculator;
   }
 
   private async getShowMultiCalculator(

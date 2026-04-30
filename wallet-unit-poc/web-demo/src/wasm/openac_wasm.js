@@ -73,24 +73,6 @@ export function precompute_from_witness(pk_bytes, witness_wtns_bytes) {
 }
 
 /**
- * Prove the two-credential Prepare circuit using externally generated witness bytes.
- * @param {Uint8Array} pk_bytes
- * @param {Uint8Array} witness_wtns_bytes
- * @returns {any}
- */
-export function precompute_prepare_2vc_from_witness(pk_bytes, witness_wtns_bytes) {
-    const ptr0 = passArray8ToWasm0(pk_bytes, wasm.__wbindgen_malloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(witness_wtns_bytes, wasm.__wbindgen_malloc);
-    const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.precompute_prepare_2vc_from_witness(ptr0, len0, ptr1, len1);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
  * Prove the two-credential Show circuit using externally generated witness bytes.
  * @param {Uint8Array} pk_bytes
  * @param {Uint8Array} witness_wtns_bytes

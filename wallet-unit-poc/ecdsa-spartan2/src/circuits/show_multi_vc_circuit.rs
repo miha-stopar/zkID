@@ -183,7 +183,12 @@ impl SpartanCircuit<E> for ShowMultiVcCircuit {
                 synthesize(cs, r1cs, Some(witness))?;
             }
             Err(_) => {
-                synthesize_witness_only(cs, &witness, 3)?;
+                let total_claims = self
+                    .path_config
+                    .circuit_size
+                    .n_claims_multi(self.credential_count);
+                let layout = calculate_show_witness_indices(total_claims);
+                synthesize_witness_only(cs, &witness, layout.num_public())?;
             }
         }
         Ok(())
@@ -191,9 +196,14 @@ impl SpartanCircuit<E> for ShowMultiVcCircuit {
 
     fn public_values(&self) -> Result<Vec<Scalar>, SynthesisError> {
         self.circuit_name()?;
+        let total_claims = self
+            .path_config
+            .circuit_size
+            .n_claims_multi(self.credential_count);
+        let layout = calculate_show_witness_indices(total_claims);
         let witness = self.get_or_generate_witness().ok();
-        let mut values = Vec::with_capacity(3);
-        for idx in 1..=3 {
+        let mut values = Vec::with_capacity(layout.num_public());
+        for idx in 1..=layout.num_public() {
             values.push(witness.as_ref().map(|w| w[idx]).unwrap_or(Scalar::ZERO));
         }
         Ok(values)

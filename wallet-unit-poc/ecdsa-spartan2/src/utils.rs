@@ -288,78 +288,6 @@ pub fn hashmap_to_json_string(
     serde_json::to_string(&json_map).map_err(|_| SynthesisError::Unsatisfiable)
 }
 
-pub fn parse_prepare_2vc_inputs(
-    json_value: &Value,
-) -> Result<HashMap<String, Vec<BigInt>>, SynthesisError> {
-    let vc0 = json_value
-        .get("vc0")
-        .ok_or(SynthesisError::AssignmentMissing)?;
-    let vc1 = json_value
-        .get("vc1")
-        .ok_or(SynthesisError::AssignmentMissing)?;
-
-    let mut inputs = HashMap::new();
-    for (suffix, vc) in [("0", vc0), ("1", vc1)] {
-        let parsed = parse_jwt_inputs(vc)?;
-        for (key, value) in parsed {
-            inputs.insert(format!("{key}{suffix}"), value);
-        }
-    }
-
-    Ok(inputs)
-}
-
-pub fn hashmap_to_json_string_prepare_2vc(
-    inputs: &HashMap<String, Vec<BigInt>>,
-    max_matches: usize,
-    max_substring_length: usize,
-    max_claims_length: usize,
-) -> Result<String, SynthesisError> {
-    use serde_json::json;
-
-    let max_claims = max_matches.saturating_sub(2);
-    let two_d_fields: HashMap<String, (usize, usize)> = [
-        ("claims0".to_string(), (max_claims, max_claims_length)),
-        ("claims1".to_string(), (max_claims, max_claims_length)),
-        (
-            "matchSubstring0".to_string(),
-            (max_matches, max_substring_length),
-        ),
-        (
-            "matchSubstring1".to_string(),
-            (max_matches, max_substring_length),
-        ),
-    ]
-    .into_iter()
-    .collect();
-
-    let mut json_map = serde_json::Map::new();
-    for (key, values) in inputs.iter() {
-        if let Some(&(rows, cols)) = two_d_fields.get(key) {
-            let mut array_2d = Vec::with_capacity(rows);
-            for i in 0..rows {
-                let start = i * cols;
-                let end = start + cols;
-                if end > values.len() {
-                    return Err(SynthesisError::Unsatisfiable);
-                }
-                let row: Vec<String> = values[start..end]
-                    .iter()
-                    .map(|bigint| bigint.to_string())
-                    .collect();
-                array_2d.push(json!(row));
-            }
-            json_map.insert(key.clone(), json!(array_2d));
-        } else {
-            let string_array: Vec<String> =
-                values.iter().map(|bigint| bigint.to_string()).collect();
-            json_map.insert(key.clone(), json!(string_array));
-        }
-    }
-
-    serde_json::to_string(&json_map).map_err(|_| SynthesisError::Unsatisfiable)
-}
-
 pub fn parse_byte(value: &Value) -> Result<u8, SynthesisError> {
     if let Some(as_str) = value.as_str() {
         let parsed = as_str
@@ -507,39 +435,15 @@ pub fn calculate_jwt_output_indices(
     }
 }
 
-/// Public-output layout for `Prepare2SdJwt`:
-/// `normalizedClaimValuesAll[0..2*(maxMatches-2)]`, then `KeyBindingX`, `KeyBindingY`.
-pub fn calculate_prepare_2vc_output_indices(
-    max_matches: usize,
-    _max_claims_length: usize,
-) -> JwtOutputLayout {
-    let per_vc_claims = max_matches.saturating_sub(2);
-    let claim_values_len = 2 * per_vc_claims;
-    let claim_values_start = 1;
-    let keybinding_x_index = claim_values_start + claim_values_len;
-    let keybinding_y_index = keybinding_x_index + 1;
-
-    JwtOutputLayout {
-        claim_values_start,
-        claim_values_len,
-        keybinding_x_index,
-        keybinding_y_index,
-    }
-}
-
 /// Layout of the Show circuit's witness vector.
 ///
-/// Verified against `build/show/show.sym` (`Show(2, 2, 8, 64)`):
-///   witness[1] = main.expressionResult (output)
-///   witness[2] = main.deviceKeyX       (public input)
-///   witness[3] = main.deviceKeyY       (public input)
-///   witness[4] = main.sig_r            (private)
-///   witness[5] = main.sig_s_inverse    (private)
-///   witness[6] = main.predicateLen     (private)
-///   witness[7..7+n_claims] = main.claimValues[..]
+/// Circom public IO order:
+///   expressionResult, deviceKeyX, deviceKeyY, messageHash,
+///   predicateLen, predicateClaimRefs, predicateOps, predicateRhsIsRef,
+///   predicateRhsValues, tokenTypes, tokenValues, exprLen.
 ///
-/// Note: `main.messageHash` shows `witness_idx = -1` in show.sym, so it does
-/// not occupy a slot in the witness vector and is not counted in this layout.
+/// The device challenge hash and predicate program are public so verifiers can
+/// bind a proof to the expected challenge and policy.
 #[derive(Debug, Clone, Copy)]
 pub struct ShowWitnessLayout {
     pub expression_result_index: usize,
@@ -550,20 +454,36 @@ pub struct ShowWitnessLayout {
 }
 
 impl ShowWitnessLayout {
+    pub fn num_public(&self) -> usize {
+        show_public_signal_count()
+    }
+
     pub fn claim_values_range(&self) -> Range<usize> {
         self.claim_values_start..self.claim_values_start + self.claim_values_len
     }
+}
+
+const SHOW_MAX_PREDICATES: usize = 2;
+const SHOW_MAX_LOGIC_TOKENS: usize = 8;
+
+pub fn show_policy_public_value_count() -> usize {
+    1 + 1 + SHOW_MAX_PREDICATES * 4 + SHOW_MAX_LOGIC_TOKENS * 2 + 1
+}
+
+pub fn show_public_signal_count() -> usize {
+    3 + show_policy_public_value_count()
 }
 
 /// Calculate Show circuit witness layout for the given `n_claims` template parameter.
 ///
 /// `n_claims` must equal the JWT circuit's `maxMatches - 2` (see [`CircuitSize::n_claims`]).
 pub fn calculate_show_witness_indices(n_claims: usize) -> ShowWitnessLayout {
+    let claim_values_start = show_public_signal_count() + 3;
     ShowWitnessLayout {
         expression_result_index: 1,
         device_key_x_index: 2,
         device_key_y_index: 3,
-        claim_values_start: 7,
+        claim_values_start,
         claim_values_len: n_claims,
     }
 }

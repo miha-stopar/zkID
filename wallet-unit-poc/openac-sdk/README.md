@@ -70,11 +70,32 @@ import {
   OpenAC,
   LogicToken,
   PredicateOp,
+  buildPreparedMultiVerifierNonce,
   deserializePreparedMultiPresentation,
 } from "openac-sdk";
 
 const openac = await OpenAC.init({ assetsDir: "./assets" });
 const keys = await openac.loadPreparedMultiKeysFromUrl("https://cdn.example/keys", "1k", 3);
+const showParams = { nClaims: 6, maxPredicates: 2, maxLogicTokens: 8, valueBits: 64 };
+const showInputOptions = {
+  predicates: [
+    { claimRef: 1, op: PredicateOp.GE, rhsValue: 18n },
+    { claimRef: 5, op: PredicateOp.EQ, rhsValue: 1n },
+  ],
+  logicExpression: [
+    { type: LogicToken.REF, value: 0 },
+    { type: LogicToken.REF, value: 1 },
+    { type: LogicToken.AND, value: 0 },
+  ],
+};
+const verifierNonce = buildPreparedMultiVerifierNonce({
+  nonce: "challenge-123",
+  credentialCount: 3,
+  claimsPerCredential: 2,
+  showParams,
+  showInputOptions,
+  keySetId: "1k-prepared-multi-3",
+});
 
 const prepared = await openac.precomputePreparedMulti({
   credentials: [
@@ -89,15 +110,11 @@ const prepared = await openac.precomputePreparedMulti({
 // VC0 claim 0, VC0 claim 1, VC1 claim 0, VC1 claim 1, VC2 claim 0, VC2 claim 1.
 const proof = await openac.presentPreparedMulti({
   prepared,
-  verifierNonce: "challenge-123",
+  verifierNonce,
   devicePrivateKey: "0xabcdef...",
   keys,
-  showInputOptions: {
-    predicates: [
-      { claimRef: 1, op: PredicateOp.GE, rhsValue: 18n },
-      { claimRef: 5, op: PredicateOp.EQ, rhsValue: 1n },
-    ],
-  },
+  showParams,
+  showInputOptions,
 });
 
 const serializedProof = proof.serialize();
@@ -105,12 +122,19 @@ const receivedProof = deserializePreparedMultiPresentation(serializedProof);
 const result = await openac.verifyPreparedMulti(
   receivedProof,
   keys.preparedMultiVerifyingKeys(),
+  {
+    expectedCredentialCount: 3,
+    verifierNonce,
+    showParams,
+    showInputOptions,
+    expectedKeySetId: "1k-prepared-multi-3",
+  },
 );
 ```
 
 `precomputePreparedMulti` runs the normal single-credential Prepare circuit once per credential and bundles the saved normalized claims. `presentPreparedMulti` verifies predicates over 2, 3, or 4 prepared credentials and includes a linker proof that binds the multi-credential Show proof to the verified Prepare outputs.
 
-At verification time a prepared multi-credential presentation contains one Prepare proof per credential, one Link proof, and one multi-credential Show proof. The verifier checks every Prepare proof, verifies Link public values against the Prepare public outputs, verifies Show, and compares the Link/Show shared witness commitment. That binds Show to the same device key and flattened prepared claims.
+At verification time a prepared multi-credential presentation contains one Prepare proof per credential, one Link proof, and one multi-credential Show proof. The verifier checks the expected credential count, challenge hash, and public predicate program, verifies every Prepare proof, verifies Link public values against the Prepare public outputs, verifies Show, and compares the Link/Show shared witness commitment. That binds Show to the same device key, flattened prepared claims, verifier challenge, and requested policy.
 
 ### One-Shot (no precompute/present split)
 
@@ -155,7 +179,6 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 |--------|-------------|
 | `OpenAC.init(config?)` | Load WASM prover |
 | `openac.loadKeysFromUrl(url, size)` | Fetch keys (`'1k'`/`'2k'`/`'4k'`/`'8k'`) |
-| `openac.loadMultiKeysFromUrl(url, size, credentialCount?)` | Fetch legacy combined-Prepare multi-credential keys |
 | `openac.loadPreparedMultiKeysFromUrl(url, size, credentialCount)` | Fetch single-Prepare, prepared multi-Show, and linker keys |
 | `openac.loadKeys(data)` | Load keys from bytes |
 | `openac.loadPreparedMultiKeys(data)` | Load prepared multi-credential keys from bytes |
@@ -164,9 +187,7 @@ Operators: `LE` (<=), `GE` (>=), `EQ` (==). Logic: `REF`, `AND`, `OR`, `NOT`. Ev
 | `openac.precomputePreparedMulti(req)` | Prepare each credential once and cache flattened claims for multi-credential Show |
 | `openac.precomputePreparedMultiShow(req)` | Prove predicates over flattened prepared claims for 2VC/3VC/4VC Show |
 | `openac.presentPreparedMulti(req)` | Present linked Prepare proofs plus one multi-credential Show proof |
-| `openac.verifyPreparedMulti(proof, keys)` | Verify a prepared multi-credential presentation |
-| `openac.precomputeMulti(req)` | Legacy combined-Prepare multi-credential path |
-| `openac.presentMulti(req)` | Legacy combined-Prepare multi-credential presentation |
+| `openac.verifyPreparedMulti(proof, keys, expected)` | Verify a prepared multi-credential presentation against expected count, challenge, and policy |
 | `openac.verify(proof, keys)` | Verify proof |
 | `openac.createProof(req)` | One-shot prove |
 | `openac.verifyProof(bytes, keys)` | Verify serialized proof |

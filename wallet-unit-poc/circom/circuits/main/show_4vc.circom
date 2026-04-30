@@ -3,4 +3,4 @@ pragma circom 2.2.3;
 
 include "../show_multi_credentials.circom";
 
-component main {public[deviceKeyX, deviceKeyY]} = ShowMultiCredentials(4, 2, 2, 8, 64);
+component main {public[deviceKeyX, deviceKeyY, messageHash, predicateLen, predicateClaimRefs, predicateOps, predicateRhsIsRef, predicateRhsValues, tokenTypes, tokenValues, exprLen]} = ShowMultiCredentials(4, 2, 2, 8, 64);

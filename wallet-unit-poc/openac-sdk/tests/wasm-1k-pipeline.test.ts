@@ -13,6 +13,7 @@ import {
   buildShowCircuitInputs,
   signDeviceNonce,
   DEFAULT_SHOW_PARAMS,
+  showPolicyPublicValueCount,
   circuitInputsToJson,
 } from "../src/index.js";
 import type { JwtCircuitParams } from "../src/types.js";
@@ -396,8 +397,9 @@ describe.skipIf(!checkArtifactsExist())(
 
     expect(verifyResult.valid).toBe(true);
     expect(verifyResult.error).toBeUndefined();
-    // Show circuit: 3 public values (expressionResult, deviceKeyX, deviceKeyY)
-    expect(verifyResult.showPublicValues.length).toBe(3);
+    expect(verifyResult.showPublicValues.length).toBe(
+      3 + showPolicyPublicValueCount(DEFAULT_SHOW_PARAMS),
+    );
     // JWT 1k circuit: maxClaims(2) + 2 (KeyBindingX, KeyBindingY) = 4 public values
     expect(verifyResult.preparePublicValues.length).toBe(4);
   }, 900_000);

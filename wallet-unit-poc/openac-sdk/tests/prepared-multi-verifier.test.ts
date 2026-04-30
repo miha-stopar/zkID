@@ -1,17 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { Verifier } from "../src/verifier.js";
-import { deserializePreparedMultiPresentation } from "../src/index.js";
+import {
+  buildShowPolicyPublicValues,
+  deserializePreparedMultiPresentation,
+  LogicToken,
+  PredicateOp,
+} from "../src/index.js";
 import type { WasmBridge } from "../src/wasm-bridge.js";
 import type {
   PreparedMultiPresentationProof,
+  PreparedMultiVerificationOptions,
   PreparedMultiVerifyingKeys,
+  ShowCircuitParams,
 } from "../src/types.js";
 
 const keys: PreparedMultiVerifyingKeys = {
   prepareVerifyingKey: new Uint8Array([1]),
   showVerifyingKey: new Uint8Array([2]),
   linkVerifyingKey: new Uint8Array([3]),
+  credentialCount: 3,
+  keySetId: "1k-prepared-multi-3",
 };
 
 const prepareProofs = [
@@ -21,6 +30,31 @@ const prepareProofs = [
 ];
 const linkProof = new Uint8Array([20]);
 const showProof = new Uint8Array([30]);
+const verifierNonce = "challenge-123";
+const showParams: ShowCircuitParams = {
+  nClaims: 6,
+  maxPredicates: 2,
+  maxLogicTokens: 8,
+  valueBits: 64,
+};
+const showInputOptions = {
+  predicates: [
+    { claimRef: 1, op: PredicateOp.GE, rhsValue: 18n },
+    { claimRef: 5, op: PredicateOp.EQ, rhsValue: 1n },
+  ],
+  logicExpression: [
+    { type: LogicToken.REF, value: 0 },
+    { type: LogicToken.REF, value: 1 },
+    { type: LogicToken.AND, value: 0 },
+  ],
+};
+const expected: PreparedMultiVerificationOptions = {
+  expectedCredentialCount: 3,
+  verifierNonce,
+  showParams,
+  showInputOptions,
+  expectedKeySetId: "1k-prepared-multi-3",
+};
 
 function expectedLinkPublicValues(): string[] {
   return [
@@ -44,6 +78,23 @@ function expectedLinkPublicValues(): string[] {
   ];
 }
 
+function expectedShowPublicValues(
+  expressionResult = "1",
+  deviceKeyX = "111",
+  deviceKeyY = "222",
+): string[] {
+  return [
+    expressionResult,
+    deviceKeyX,
+    deviceKeyY,
+    ...buildShowPolicyPublicValues(
+      showParams,
+      verifierNonce,
+      showInputOptions,
+    ).map((value) => value.toString()),
+  ];
+}
+
 function makeProof(
   overrides: Partial<PreparedMultiPresentationProof> = {},
 ): PreparedMultiPresentationProof {
@@ -52,11 +103,6 @@ function makeProof(
     credentialCount: 3,
     claimsPerCredential: 2,
     prepareProofs,
-    prepareInstances: [
-      new Uint8Array([40]),
-      new Uint8Array([41]),
-      new Uint8Array([42]),
-    ],
     linkProof,
     linkInstance: new Uint8Array([50]),
     showProof,
@@ -86,7 +132,7 @@ function makeBridge(
     [11, ["30", "40", "111", "222"]],
     [12, ["50", "60", "111", "222"]],
     [20, expectedLinkPublicValues()],
-    [30, ["1", "111", "222"]],
+    [30, expectedShowPublicValues()],
   ]),
   sharedCommitmentMatches = true,
 ): WasmBridge {
@@ -129,7 +175,7 @@ describe("Verifier.verifyPreparedMulti", () => {
     const bridge = makeBridge();
     const verifier = new Verifier(bridge);
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(true);
     expect(result.expressionResult).toBe(true);
@@ -149,7 +195,7 @@ describe("Verifier.verifyPreparedMulti", () => {
   it("rejects a presentation whose Link proof is not tied to the Show proof", async () => {
     const verifier = new Verifier(makeBridge(undefined, false));
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toContain("Shared commitment mismatch");
@@ -170,6 +216,7 @@ describe("Verifier.verifyPreparedMulti", () => {
         },
       }),
       keys,
+      expected,
     );
 
     expect(result.valid).toBe(false);
@@ -187,11 +234,11 @@ describe("Verifier.verifyPreparedMulti", () => {
       [11, ["30", "40", "111", "222"]],
       [12, ["50", "60", "111", "222"]],
       [20, linkValues],
-      [30, ["1", "111", "222"]],
+      [30, expectedShowPublicValues()],
     ]);
     const verifier = new Verifier(makeBridge(publicValues));
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toBe("Link proof public value mismatch at index 5");
@@ -203,11 +250,11 @@ describe("Verifier.verifyPreparedMulti", () => {
       [11, ["30", "40", "111", "222"]],
       [12, ["50", "60", "111", "222"]],
       [20, expectedLinkPublicValues()],
-      [30, ["1", "111", "999"]],
+      [30, expectedShowPublicValues("1", "111", "999")],
     ]);
     const verifier = new Verifier(makeBridge(publicValues));
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toBe(
@@ -221,11 +268,11 @@ describe("Verifier.verifyPreparedMulti", () => {
       [11, ["30", "40", "111", "222"]],
       [12, ["50", "60", "111", "222"]],
       [20, expectedLinkPublicValues()],
-      [30, ["1", "111", "222"]],
+      [30, expectedShowPublicValues()],
     ]);
     const verifier = new Verifier(makeBridge(publicValues));
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toContain("Prepare proof 0 public value count mismatch");
@@ -237,11 +284,11 @@ describe("Verifier.verifyPreparedMulti", () => {
       [11, ["30", "40", "111", "999"]],
       [12, ["50", "60", "111", "222"]],
       [20, expectedLinkPublicValues()],
-      [30, ["1", "111", "222"]],
+      [30, expectedShowPublicValues()],
     ]);
     const verifier = new Verifier(makeBridge(publicValues));
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toBe("Prepare proof 1 uses a different device key");
@@ -251,11 +298,84 @@ describe("Verifier.verifyPreparedMulti", () => {
     const bridge = makeBridge(new Map([[10, ["10", "20", "111", "222"]]]));
     const verifier = new Verifier(bridge);
 
-    const result = await verifier.verifyPreparedMulti(makeProof(), keys);
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
 
     expect(result.valid).toBe(false);
     expect(result.error).toContain("Prepare proof verification failed");
     expect(result.error).toContain("unknown proof 11");
+  });
+
+  it("rejects a proof that self-selects a lower credential count than expected", async () => {
+    const bridge = makeBridge();
+    const verifier = new Verifier(bridge);
+
+    const result = await verifier.verifyPreparedMulti(
+      makeProof({
+        kind: "multi-vc-2",
+        credentialCount: 2,
+        prepareProofs: [prepareProofs[0]!, prepareProofs[1]!],
+        publicValues: {
+          expressionResult: true,
+          deviceKeyX: "111",
+          deviceKeyY: "222",
+          normalizedClaimValues: [10n, 20n, 30n, 40n],
+        },
+      }),
+      keys,
+      expected,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("credential count mismatch");
+    expect(bridge.verifySingle).not.toHaveBeenCalled();
+  });
+
+  it("rejects mismatched prepared multi verifying key count", async () => {
+    const bridge = makeBridge();
+    const verifier = new Verifier(bridge);
+
+    const result = await verifier.verifyPreparedMulti(
+      makeProof(),
+      { ...keys, credentialCount: 2 },
+      expected,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("verifying key count mismatch");
+    expect(bridge.verifySingle).not.toHaveBeenCalled();
+  });
+
+  it("rejects mismatched prepared multi key set id", async () => {
+    const bridge = makeBridge();
+    const verifier = new Verifier(bridge);
+
+    const result = await verifier.verifyPreparedMulti(
+      makeProof(),
+      { ...keys, keySetId: "1k-prepared-multi-2" },
+      expected,
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toContain("verifying key set mismatch");
+    expect(bridge.verifySingle).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Show proof with a different challenge or policy", async () => {
+    const wrongPolicyValues = expectedShowPublicValues();
+    wrongPolicyValues[3] = "999";
+    const publicValues = new Map<number, string[]>([
+      [10, ["10", "20", "111", "222"]],
+      [11, ["30", "40", "111", "222"]],
+      [12, ["50", "60", "111", "222"]],
+      [20, expectedLinkPublicValues()],
+      [30, wrongPolicyValues],
+    ]);
+    const verifier = new Verifier(makeBridge(publicValues));
+
+    const result = await verifier.verifyPreparedMulti(makeProof(), keys, expected);
+
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe("Show proof challenge/policy public value mismatch at index 0");
   });
 
   it("round-trips serialized prepared multi presentations", () => {
@@ -266,7 +386,6 @@ describe("Verifier.verifyPreparedMulti", () => {
         credentialCount: 3,
         claimsPerCredential: 2,
         prepareProofs: ["Cg==", "Cw==", "DA=="],
-        prepareInstances: ["KA==", "KQ==", "Kg=="],
         linkProof: "FA==",
         linkInstance: "Mg==",
         showProof: "Hg==",

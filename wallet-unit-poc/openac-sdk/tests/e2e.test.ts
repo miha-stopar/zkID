@@ -9,20 +9,15 @@ import {
   WitnessCalculator,
   Credential,
   buildJwtCircuitInputs,
-  buildPrepare2VcCircuitInputs,
-  buildPrepareMultiVcCircuitInputs,
   buildShowCircuitInputs,
   signDeviceNonce,
   base64urlToBigInt,
   bundlePrecomputedCredentials,
   deserializePreparedMulti,
   getPreparedMultiShowCircuitProfile,
-  getMultiCredentialCircuitProfile,
-  multiCredentialKeyFilenames,
   preparedMultiKeyFilenames,
   preparedMultiShowKeyFilenames,
   SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS,
-  SUPPORTED_MULTI_CREDENTIAL_COUNTS,
   DEFAULT_JWT_PARAMS,
   DEFAULT_SHOW_PARAMS,
   DEFAULT_SHOW_2VC_PARAMS,
@@ -250,26 +245,6 @@ describe("Credential Parsing via SDK", () => {
 });
 
 describe("Input Builders via SDK", () => {
-  it("exposes the supported multi-credential circuit profile", () => {
-    expect(SUPPORTED_MULTI_CREDENTIAL_COUNTS).toEqual([2]);
-
-    const profile = getMultiCredentialCircuitProfile(2);
-
-    expect(profile.kind).toBe("multi-vc-2");
-    expect(profile.credentialCount).toBe(2);
-    expect(profile.prepareCliName).toBe("prepare-2vc");
-    expect(profile.showCliName).toBe("show-2vc");
-    expect(profile.defaultShowParams.nClaims).toBe(
-      DEFAULT_SHOW_PARAMS.nClaims * 2,
-    );
-    expect(multiCredentialKeyFilenames(2, "1k")).toEqual([
-      "1k_prepare_2vc_proving.key",
-      "1k_prepare_2vc_verifying.key",
-      "1k_show_2vc_proving.key",
-      "1k_show_2vc_verifying.key",
-    ]);
-  });
-
   it("exposes prepared multi-credential Show profiles for 2VC through 4VC", () => {
     expect(SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS).toEqual([2, 3, 4]);
 
@@ -299,9 +274,6 @@ describe("Input Builders via SDK", () => {
   });
 
   it("rejects unsupported multi-credential circuit counts", () => {
-    expect(() => getMultiCredentialCircuitProfile(3)).toThrow(
-      "Unsupported multi-credential count 3",
-    );
     expect(() => getPreparedMultiShowCircuitProfile(5)).toThrow(
       "Unsupported prepared multi-credential Show count 5",
     );
@@ -493,71 +465,6 @@ describe("Input Builders via SDK", () => {
     expect(inputs.periodIndex).toBeGreaterThan(0);
     expect(inputs.matchesCount).toBe(additionalMatches.length + 2); // +2 for "x":" and "y":"
     expect(inputs.claimFormats.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
-  });
-
-  it("buildPrepare2VcCircuitInputs creates suffixed inputs for both credentials", () => {
-    const data = generateTestJwt();
-    const credential = Credential.parse(data.jwt, data.disclosures);
-    const additionalMatches = credential.disclosureHashes;
-    const decodeFlags = data.claims.map((c) =>
-      c.key === "roc_birthday" ? 1 : 0,
-    );
-    const claimFormats = data.claims.map((c) =>
-      c.key === "roc_birthday" ? 3 : 4,
-    );
-
-    const jwtInputs = buildJwtCircuitInputs(
-      credential,
-      data.issuerPublicKey,
-      DEFAULT_JWT_PARAMS,
-      additionalMatches,
-      decodeFlags,
-      claimFormats,
-    );
-    const prepare2VcInputs = buildPrepare2VcCircuitInputs(jwtInputs, jwtInputs);
-
-    expect(prepare2VcInputs.message0.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
-    expect(prepare2VcInputs.message1.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
-    expect(prepare2VcInputs.sig_r0).toBe(jwtInputs.sig_r);
-    expect(prepare2VcInputs.sig_r1).toBe(jwtInputs.sig_r);
-    expect(prepare2VcInputs.claims0.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
-    expect(prepare2VcInputs.claims1.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
-  });
-
-  it("buildPrepareMultiVcCircuitInputs creates nested inputs for generic N-credential circuits", () => {
-    const data = generateTestJwt();
-    const credential = Credential.parse(data.jwt, data.disclosures);
-    const additionalMatches = credential.disclosureHashes;
-    const decodeFlags = data.claims.map((c) =>
-      c.key === "roc_birthday" ? 1 : 0,
-    );
-    const claimFormats = data.claims.map((c) =>
-      c.key === "roc_birthday" ? 3 : 4,
-    );
-
-    const jwtInputs = buildJwtCircuitInputs(
-      credential,
-      data.issuerPublicKey,
-      DEFAULT_JWT_PARAMS,
-      additionalMatches,
-      decodeFlags,
-      claimFormats,
-    );
-    const prepareInputs = buildPrepareMultiVcCircuitInputs([
-      jwtInputs,
-      jwtInputs,
-      jwtInputs,
-    ]);
-
-    expect(prepareInputs.message.length).toBe(3);
-    expect(prepareInputs.message[0]!.length).toBe(DEFAULT_JWT_PARAMS.maxMessageLength);
-    expect(prepareInputs.matchSubstring.length).toBe(3);
-    expect(prepareInputs.claims[2]!.length).toBe(DEFAULT_JWT_PARAMS.maxMatches - 2);
-    expect(prepareInputs.sig_r).toEqual([
-      jwtInputs.sig_r,
-      jwtInputs.sig_r,
-      jwtInputs.sig_r,
-    ]);
   });
 
   it("buildShowCircuitInputs can address the flattened 2VC claim namespace", () => {

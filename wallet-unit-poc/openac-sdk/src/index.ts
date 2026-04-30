@@ -2,7 +2,7 @@ import { WasmBridge, VcSize } from "./wasm-bridge.js";
 import { WitnessCalculator } from "./witness-calculator.js";
 import { Prover } from "./prover.js";
 import { Verifier } from "./verifier.js";
-import { jwtParamsForVcSize } from "./multi-circuit.js";
+import { jwtParamsForVcSize, preparedMultiKeySetId } from "./multi-circuit.js";
 import type {
   OpenACConfig,
   ProofRequest,
@@ -15,7 +15,6 @@ import type {
   SerializedPreparedMultiKeySet,
   SerializedProof,
   PrecomputeRequest,
-  PrecomputeMultiRequest,
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
@@ -24,9 +23,8 @@ import type {
   PreparedMultiPresentationProof,
   PreparedMultiPresentationRequest,
   PreparedMultiVerifyingKeys,
-  PrecomputedMultiCredential,
+  PreparedMultiVerificationOptions,
   PresentRequest,
-  PresentMultiRequest,
   PresentationProof,
   JwtCircuitParams,
 } from "./types.js";
@@ -88,24 +86,6 @@ export class OpenAC {
     );
   }
 
-  async loadMultiKeysFromUrl(
-    baseUrl: string,
-    vcSize: VcSize,
-    credentialCount = 2,
-  ): Promise<KeySet> {
-    const keys = await this.bridge.loadMultiKeys(
-      baseUrl,
-      vcSize,
-      credentialCount,
-    );
-    return createKeySet(
-      keys.preparePk,
-      keys.prepareVk,
-      keys.showPk,
-      keys.showVk,
-    );
-  }
-
   async loadPreparedMultiKeysFromUrl(
     baseUrl: string,
     vcSize: VcSize,
@@ -124,6 +104,8 @@ export class OpenAC {
       keys.linkPk,
       keys.linkVk,
       jwtParamsForVcSize(vcSize),
+      credentialCount,
+      preparedMultiKeySetId(vcSize, credentialCount),
     );
   }
 
@@ -148,17 +130,13 @@ export class OpenAC {
       data.linkProvingKey,
       data.linkVerifyingKey,
       data.jwtParams,
+      data.credentialCount,
+      data.keySetId,
     );
   }
 
   async precompute(request: PrecomputeRequest): Promise<PrecomputedCredential> {
     return this.prover.precompute(request);
-  }
-
-  async precomputeMulti(
-    request: PrecomputeMultiRequest,
-  ): Promise<PrecomputedMultiCredential> {
-    return this.prover.precomputeMulti(request);
   }
 
   async precomputePreparedMulti(
@@ -189,10 +167,6 @@ export class OpenAC {
     return this.prover.present(request);
   }
 
-  async presentMulti(request: PresentMultiRequest): Promise<PresentationProof> {
-    return this.prover.presentMulti(request);
-  }
-
   async verify(
     proof: PresentationProof,
     keys: VerifyingKeys,
@@ -209,8 +183,9 @@ export class OpenAC {
   async verifyPreparedMulti(
     proof: PreparedMultiPresentationProof,
     keys: PreparedMultiVerifyingKeys,
+    expected: PreparedMultiVerificationOptions,
   ): Promise<VerificationResult> {
-    return this.verifier.verifyPreparedMulti(proof, keys);
+    return this.verifier.verifyPreparedMulti(proof, keys, expected);
   }
 
   async createProof(request: ProofRequest): Promise<ProofResult> {
@@ -283,6 +258,8 @@ function createPreparedMultiKeySet(
   linkProvingKey: Uint8Array,
   linkVerifyingKey: Uint8Array,
   jwtParams?: JwtCircuitParams,
+  credentialCount?: number,
+  keySetId?: string,
 ): PreparedMultiKeySet {
   return {
     prepareProvingKey,
@@ -292,13 +269,21 @@ function createPreparedMultiKeySet(
     linkProvingKey,
     linkVerifyingKey,
     jwtParams,
+    credentialCount,
+    keySetId,
 
     verifyingKeys(): VerifyingKeys {
       return { prepareVerifyingKey, showVerifyingKey };
     },
 
     preparedMultiVerifyingKeys(): PreparedMultiVerifyingKeys {
-      return { prepareVerifyingKey, showVerifyingKey, linkVerifyingKey };
+      return {
+        prepareVerifyingKey,
+        showVerifyingKey,
+        linkVerifyingKey,
+        credentialCount,
+        keySetId,
+      };
     },
 
     serialize() {
@@ -310,6 +295,8 @@ function createPreparedMultiKeySet(
         linkProvingKey,
         linkVerifyingKey,
         jwtParams,
+        credentialCount,
+        keySetId,
       };
     },
   };
@@ -322,25 +309,27 @@ export {
   deserializePrecomputed,
   deserializePreparedMulti,
   deserializePreparedMultiPresentation,
-  deserializePrecomputedMulti,
   bundlePrecomputedCredentials,
 } from "./prover.js";
 export { Verifier } from "./verifier.js";
 export { WitnessCalculator } from "./witness-calculator.js";
 export { NativeBackend } from "./native-backend.js";
 export type { NativeBackendConfig } from "./native-backend.js";
-export {
-  buildJwtCircuitInputs,
-  buildPrepare2VcCircuitInputs,
-  buildPrepareMultiVcCircuitInputs,
-} from "./inputs/jwt-input-builder.js";
+export { buildJwtCircuitInputs } from "./inputs/jwt-input-builder.js";
 export {
   buildShowCircuitInputs,
+  buildShowPolicyPublicInputs,
+  buildShowPolicyPublicValues,
+  buildPreparedMultiVerifierNonce,
   signDeviceNonce,
   PredicateOp,
   LogicToken,
 } from "./inputs/show-input-builder.js";
-export type { ShowInputOptions, PredicateSpec } from "./inputs/show-input-builder.js";
+export type {
+  ShowInputOptions,
+  PredicateSpec,
+  ShowPolicyPublicInputs,
+} from "./inputs/show-input-builder.js";
 
 export {
   OpenACError,
@@ -374,14 +363,11 @@ export type {
   JwtCircuitParams,
   ShowCircuitParams,
   JwtCircuitInputs,
-  Prepare2VcCircuitInputs,
-  PrepareMultiVcCircuitInputs,
   ShowCircuitInputs,
   MultiCredentialCircuitKind,
   CircuitArtifacts,
   ErrorCode,
   PrecomputeRequest,
-  PrecomputeMultiRequest,
   PrecomputePreparedMultiRequest,
   PrecomputedCredential,
   PreparedMultiCredential,
@@ -390,10 +376,10 @@ export type {
   PreparedMultiPresentationProof,
   PreparedMultiPresentationRequest,
   PreparedMultiVerifyingKeys,
-  PrecomputedMultiCredential,
+  PreparedMultiVerificationOptions,
+  PreparedMultiChallengeRequest,
   PrecomputeTiming,
   PresentRequest,
-  PresentMultiRequest,
   PresentationProof,
   PresentationTiming,
   PreparedMultiShowTiming,
@@ -402,16 +388,13 @@ export type {
   SerializedCredential,
   SerializedPrecomputedCredentialJSON,
   SerializedPreparedMultiCredentialJSON,
-  SerializedPrecomputedMultiCredentialJSON,
 } from "./types.js";
 
 export {
   SUPPORTED_PREPARED_MULTI_CREDENTIAL_COUNTS,
-  SUPPORTED_MULTI_CREDENTIAL_COUNTS,
   getPreparedMultiShowCircuitProfile,
-  getMultiCredentialCircuitProfile,
-  multiCredentialKeyFilenames,
   preparedMultiKeyFilenames,
+  preparedMultiKeySetId,
   preparedMultiShowKeyFilenames,
   jwtParamsForVcSize,
 } from "./multi-circuit.js";

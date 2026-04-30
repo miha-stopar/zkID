@@ -36,11 +36,6 @@ export function precompute(pk_bytes: Uint8Array): any;
 export function precompute_from_witness(pk_bytes: Uint8Array, witness_wtns_bytes: Uint8Array): any;
 
 /**
- * Prove the two-credential Prepare circuit using externally generated witness bytes.
- */
-export function precompute_prepare_2vc_from_witness(pk_bytes: Uint8Array, witness_wtns_bytes: Uint8Array): any;
-
-/**
  * Prove the two-credential Show circuit using externally generated witness bytes.
  */
 export function precompute_show_2vc_from_witness(pk_bytes: Uint8Array, witness_wtns_bytes: Uint8Array): any;
@@ -123,7 +118,6 @@ export interface InitOutput {
     readonly init: () => void;
     readonly precompute: (a: number, b: number) => [number, number, number];
     readonly precompute_from_witness: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly precompute_prepare_2vc_from_witness: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly precompute_show_2vc_from_witness: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly precompute_show_from_witness: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly present: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number];

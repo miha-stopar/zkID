@@ -145,6 +145,8 @@ export interface KeySet {
 export interface PreparedMultiKeySet extends KeySet {
   linkProvingKey: Uint8Array;
   linkVerifyingKey: Uint8Array;
+  credentialCount?: number;
+  keySetId?: string;
   preparedMultiVerifyingKeys(): PreparedMultiVerifyingKeys;
   serialize(): SerializedPreparedMultiKeySet;
 }
@@ -160,10 +162,14 @@ export interface SerializedKeySet {
 export interface SerializedPreparedMultiKeySet extends SerializedKeySet {
   linkProvingKey: Uint8Array;
   linkVerifyingKey: Uint8Array;
+  credentialCount?: number;
+  keySetId?: string;
 }
 
 export interface PreparedMultiVerifyingKeys extends VerifyingKeys {
   linkVerifyingKey: Uint8Array;
+  credentialCount?: number;
+  keySetId?: string;
 }
 
 export interface SerializedProofJSON {
@@ -185,7 +191,6 @@ export interface SerializedPreparedMultiPresentationProofJSON {
   credentialCount: number;
   claimsPerCredential: number;
   prepareProofs: string[]; // base64
-  prepareInstances: string[]; // base64
   linkProof: string; // base64
   linkInstance: string; // base64
   showProof: string; // base64
@@ -287,28 +292,6 @@ export interface JwtCircuitInputs {
   claimFormats: bigint[];
 }
 
-export type Prepare2VcCircuitInputs = {
-  [K in keyof JwtCircuitInputs as `${K & string}${0 | 1}`]: JwtCircuitInputs[K];
-};
-
-export interface PrepareMultiVcCircuitInputs {
-  message: JwtCircuitInputs["message"][];
-  messageLength: JwtCircuitInputs["messageLength"][];
-  periodIndex: JwtCircuitInputs["periodIndex"][];
-  sig_r: JwtCircuitInputs["sig_r"][];
-  sig_s_inverse: JwtCircuitInputs["sig_s_inverse"][];
-  pubKeyX: JwtCircuitInputs["pubKeyX"][];
-  pubKeyY: JwtCircuitInputs["pubKeyY"][];
-  matchesCount: JwtCircuitInputs["matchesCount"][];
-  matchSubstring: JwtCircuitInputs["matchSubstring"][];
-  matchLength: JwtCircuitInputs["matchLength"][];
-  matchIndex: JwtCircuitInputs["matchIndex"][];
-  claims: JwtCircuitInputs["claims"][];
-  claimLengths: JwtCircuitInputs["claimLengths"][];
-  decodeFlags: JwtCircuitInputs["decodeFlags"][];
-  claimFormats: JwtCircuitInputs["claimFormats"][];
-}
-
 // Raw circuit inputs for the Show circuit
 export interface ShowCircuitInputs {
   deviceKeyX: bigint;
@@ -379,14 +362,12 @@ export interface PrecomputedCredential {
   toJSON(): SerializedPrecomputedCredentialJSON;
 }
 
-export interface PrecomputeMultiRequest {
+export interface PrecomputePreparedMultiRequest {
   credentials: MultiCredentialInput[];
   keys: KeySet;
   credentialCount?: number;
   jwtParams?: JwtCircuitParams;
 }
-
-export type PrecomputePreparedMultiRequest = PrecomputeMultiRequest;
 
 export interface PreparedMultiCredential {
   kind: MultiCredentialCircuitKind;
@@ -434,7 +415,6 @@ export interface PreparedMultiPresentationProof {
   credentialCount: number;
   claimsPerCredential: number;
   prepareProofs: Uint8Array[];
-  prepareInstances: Uint8Array[];
   linkProof: Uint8Array;
   linkInstance: Uint8Array;
   showProof: Uint8Array;
@@ -449,22 +429,26 @@ export interface PreparedMultiPresentationProof {
 export interface VerifyPreparedMultiRequest {
   proof: PreparedMultiPresentationProof;
   keys: PreparedMultiVerifyingKeys;
+  expected: PreparedMultiVerificationOptions;
 }
 
-export interface PrecomputedMultiCredential {
-  kind: MultiCredentialCircuitKind;
-  prepareProof: Uint8Array;
-  prepareInstance: Uint8Array;
-  prepareWitness: Uint8Array;
-  credentials: SerializedCredential[];
-  deviceKey: EcdsaPublicKey;
+export interface PreparedMultiVerificationOptions {
+  expectedCredentialCount: number;
+  verifierNonce: string;
+  showInputOptions: import("./inputs/show-input-builder.js").ShowInputOptions;
+  showParams?: ShowCircuitParams;
+  expectedClaimsPerCredential?: number;
+  expectedKeySetId?: string;
+  requireExpressionResult?: boolean;
+}
+
+export interface PreparedMultiChallengeRequest {
+  nonce: string;
   credentialCount: number;
   claimsPerCredential: number;
-  normalizedClaimValues: bigint[];
-  claimNamespace: ClaimNamespaceEntry[];
-  timing: PrecomputeTiming;
-  serialize(): Uint8Array;
-  toJSON(): SerializedPrecomputedMultiCredentialJSON;
+  showParams: ShowCircuitParams;
+  showInputOptions: import("./inputs/show-input-builder.js").ShowInputOptions;
+  keySetId?: string;
 }
 
 export interface PrecomputeTiming {
@@ -501,31 +485,8 @@ export interface SerializedPreparedMultiCredentialJSON {
   precomputedCredentials: SerializedPrecomputedCredentialJSON[];
 }
 
-export interface SerializedPrecomputedMultiCredentialJSON {
-  version: string;
-  kind: MultiCredentialCircuitKind;
-  prepareProof: string;
-  prepareInstance: string;
-  prepareWitness: string;
-  credentials: SerializedCredential[];
-  deviceKey: EcdsaPublicKey;
-  credentialCount: number;
-  claimsPerCredential: number;
-  normalizedClaimValues: string[];
-  claimNamespace: ClaimNamespaceEntry[];
-}
-
 export interface PresentRequest {
   precomputed: PrecomputedCredential;
-  verifierNonce: string;
-  devicePrivateKey: EcdsaPrivateKey;
-  keys: KeySet;
-  showParams?: ShowCircuitParams;
-  showInputOptions?: import("./inputs/show-input-builder.js").ShowInputOptions;
-}
-
-export interface PresentMultiRequest {
-  precomputed: PrecomputedMultiCredential;
   verifierNonce: string;
   devicePrivateKey: EcdsaPrivateKey;
   keys: KeySet;
